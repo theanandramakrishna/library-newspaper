@@ -7,35 +7,46 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000031 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* AppDelegate.swift */; };
-		A10000000000000000000032 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* Models.swift */; };
-		A10000000000000000000033 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000023 /* LibraryStore.swift */; };
-		A10000000000000000000034 /* LibraryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* LibraryViewController.swift */; };
-		A10000000000000000000035 /* IssueViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000025 /* IssueViewController.swift */; };
-		A10000000000000000000036 /* ZoomablePageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000026 /* ZoomablePageView.swift */; };
-		A10000000000000000000037 /* ArticleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000027 /* ArticleViewController.swift */; };
-		A10000000000000000000038 /* ArticleListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000028 /* ArticleListViewController.swift */; };
-		A10000000000000000000039 /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000029 /* SearchViewController.swift */; };
-		A1000000000000000000003A /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002A /* LaunchScreen.storyboard */; };
+		B10000000000000000000031 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000021 /* main.m */; };
+		B10000000000000000000032 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000023 /* AppDelegate.m */; };
+		B10000000000000000000033 /* Models.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000025 /* Models.m */; };
+		B10000000000000000000034 /* LibraryStore.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000027 /* LibraryStore.m */; };
+		B10000000000000000000035 /* LibraryViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000029 /* LibraryViewController.m */; };
+		B10000000000000000000036 /* IssueViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002B /* IssueViewController.m */; };
+		B10000000000000000000037 /* ZoomablePageView.m in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002D /* ZoomablePageView.m */; };
+		B10000000000000000000038 /* ArticleViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002F /* ArticleViewController.m */; };
+		B10000000000000000000039 /* ArticleListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000041 /* ArticleListViewController.m */; };
+		B1000000000000000000003A /* SearchViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000043 /* SearchViewController.m */; };
+		B1000000000000000000003B /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000045 /* LaunchScreen.storyboard */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A10000000000000000000005 /* LibraryNewspaper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibraryNewspaper.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A10000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		A10000000000000000000022 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-		A10000000000000000000023 /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
-		A10000000000000000000024 /* LibraryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViewController.swift; sourceTree = "<group>"; };
-		A10000000000000000000025 /* IssueViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueViewController.swift; sourceTree = "<group>"; };
-		A10000000000000000000026 /* ZoomablePageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomablePageView.swift; sourceTree = "<group>"; };
-		A10000000000000000000027 /* ArticleViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArticleViewController.swift; sourceTree = "<group>"; };
-		A10000000000000000000028 /* ArticleListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArticleListViewController.swift; sourceTree = "<group>"; };
-		A10000000000000000000029 /* SearchViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
-		A1000000000000000000002A /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
-		A1000000000000000000002B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000005 /* LibraryNewspaper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LibraryNewspaper.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000021 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		B10000000000000000000022 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
+		B10000000000000000000023 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
+		B10000000000000000000024 /* Models.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Models.h; sourceTree = "<group>"; };
+		B10000000000000000000025 /* Models.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Models.m; sourceTree = "<group>"; };
+		B10000000000000000000026 /* LibraryStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LibraryStore.h; sourceTree = "<group>"; };
+		B10000000000000000000027 /* LibraryStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LibraryStore.m; sourceTree = "<group>"; };
+		B10000000000000000000028 /* LibraryViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LibraryViewController.h; sourceTree = "<group>"; };
+		B10000000000000000000029 /* LibraryViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LibraryViewController.m; sourceTree = "<group>"; };
+		B1000000000000000000002A /* IssueViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IssueViewController.h; sourceTree = "<group>"; };
+		B1000000000000000000002B /* IssueViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = IssueViewController.m; sourceTree = "<group>"; };
+		B1000000000000000000002C /* ZoomablePageView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZoomablePageView.h; sourceTree = "<group>"; };
+		B1000000000000000000002D /* ZoomablePageView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZoomablePageView.m; sourceTree = "<group>"; };
+		B1000000000000000000002E /* ArticleViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ArticleViewController.h; sourceTree = "<group>"; };
+		B1000000000000000000002F /* ArticleViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ArticleViewController.m; sourceTree = "<group>"; };
+		B10000000000000000000040 /* ArticleListViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ArticleListViewController.h; sourceTree = "<group>"; };
+		B10000000000000000000041 /* ArticleListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ArticleListViewController.m; sourceTree = "<group>"; };
+		B10000000000000000000042 /* SearchViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SearchViewController.h; sourceTree = "<group>"; };
+		B10000000000000000000043 /* SearchViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SearchViewController.m; sourceTree = "<group>"; };
+		B10000000000000000000044 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000045 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A10000000000000000000007 /* Frameworks */ = {
+		B10000000000000000000007 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -45,36 +56,46 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A10000000000000000000002 = {
+		B10000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000009 /* LibraryNewspaper */,
-				A10000000000000000000003 /* Products */,
+				B10000000000000000000009 /* LibraryNewspaper */,
+				B10000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A10000000000000000000003 /* Products */ = {
+		B10000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000005 /* LibraryNewspaper.app */,
+				B10000000000000000000005 /* LibraryNewspaper.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A10000000000000000000009 /* LibraryNewspaper */ = {
+		B10000000000000000000009 /* LibraryNewspaper */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000021 /* AppDelegate.swift */,
-				A10000000000000000000022 /* Models.swift */,
-				A10000000000000000000023 /* LibraryStore.swift */,
-				A10000000000000000000024 /* LibraryViewController.swift */,
-				A10000000000000000000025 /* IssueViewController.swift */,
-				A10000000000000000000026 /* ZoomablePageView.swift */,
-				A10000000000000000000027 /* ArticleViewController.swift */,
-				A10000000000000000000028 /* ArticleListViewController.swift */,
-				A10000000000000000000029 /* SearchViewController.swift */,
-				A1000000000000000000002A /* LaunchScreen.storyboard */,
-				A1000000000000000000002B /* Info.plist */,
+				B10000000000000000000021 /* main.m */,
+				B10000000000000000000022 /* AppDelegate.h */,
+				B10000000000000000000023 /* AppDelegate.m */,
+				B10000000000000000000024 /* Models.h */,
+				B10000000000000000000025 /* Models.m */,
+				B10000000000000000000026 /* LibraryStore.h */,
+				B10000000000000000000027 /* LibraryStore.m */,
+				B10000000000000000000028 /* LibraryViewController.h */,
+				B10000000000000000000029 /* LibraryViewController.m */,
+				B1000000000000000000002A /* IssueViewController.h */,
+				B1000000000000000000002B /* IssueViewController.m */,
+				B1000000000000000000002C /* ZoomablePageView.h */,
+				B1000000000000000000002D /* ZoomablePageView.m */,
+				B1000000000000000000002E /* ArticleViewController.h */,
+				B1000000000000000000002F /* ArticleViewController.m */,
+				B10000000000000000000040 /* ArticleListViewController.h */,
+				B10000000000000000000041 /* ArticleListViewController.m */,
+				B10000000000000000000042 /* SearchViewController.h */,
+				B10000000000000000000043 /* SearchViewController.m */,
+				B10000000000000000000045 /* LaunchScreen.storyboard */,
+				B10000000000000000000044 /* Info.plist */,
 			);
 			path = LibraryNewspaper;
 			sourceTree = "<group>";
@@ -82,13 +103,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A10000000000000000000004 /* LibraryNewspaper */ = {
+		B10000000000000000000004 /* LibraryNewspaper */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A10000000000000000000011 /* Build configuration list for PBXNativeTarget "LibraryNewspaper" */;
+			buildConfigurationList = B10000000000000000000011 /* Build configuration list for PBXNativeTarget "LibraryNewspaper" */;
 			buildPhases = (
-				A10000000000000000000006 /* Sources */,
-				A10000000000000000000007 /* Frameworks */,
-				A10000000000000000000008 /* Resources */,
+				B10000000000000000000006 /* Sources */,
+				B10000000000000000000007 /* Frameworks */,
+				B10000000000000000000008 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -96,24 +117,24 @@
 			);
 			name = LibraryNewspaper;
 			productName = LibraryNewspaper;
-			productReference = A10000000000000000000005 /* LibraryNewspaper.app */;
+			productReference = B10000000000000000000005 /* LibraryNewspaper.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A10000000000000000000001 /* Project object */ = {
+		B10000000000000000000001 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1300;
 				ORGANIZATIONNAME = Anand;
 				TargetAttributes = {
-					A10000000000000000000004 = {
+					B10000000000000000000004 = {
 						CreatedOnToolsVersion = 13.0;
 					};
 				};
 			};
-			buildConfigurationList = A10000000000000000000010 /* Build configuration list for PBXProject "LibraryNewspaper" */;
+			buildConfigurationList = B10000000000000000000010 /* Build configuration list for PBXProject "LibraryNewspaper" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -121,48 +142,49 @@
 				en,
 				Base,
 			);
-			mainGroup = A10000000000000000000002;
-			productRefGroup = A10000000000000000000003 /* Products */;
+			mainGroup = B10000000000000000000002;
+			productRefGroup = B10000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A10000000000000000000004 /* LibraryNewspaper */,
+				B10000000000000000000004 /* LibraryNewspaper */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A10000000000000000000008 /* Resources */ = {
+		B10000000000000000000008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1000000000000000000003A /* LaunchScreen.storyboard in Resources */,
+				B1000000000000000000003B /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A10000000000000000000006 /* Sources */ = {
+		B10000000000000000000006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000031 /* AppDelegate.swift in Sources */,
-				A10000000000000000000032 /* Models.swift in Sources */,
-				A10000000000000000000033 /* LibraryStore.swift in Sources */,
-				A10000000000000000000034 /* LibraryViewController.swift in Sources */,
-				A10000000000000000000035 /* IssueViewController.swift in Sources */,
-				A10000000000000000000036 /* ZoomablePageView.swift in Sources */,
-				A10000000000000000000037 /* ArticleViewController.swift in Sources */,
-				A10000000000000000000038 /* ArticleListViewController.swift in Sources */,
-				A10000000000000000000039 /* SearchViewController.swift in Sources */,
+				B10000000000000000000031 /* main.m in Sources */,
+				B10000000000000000000032 /* AppDelegate.m in Sources */,
+				B10000000000000000000033 /* Models.m in Sources */,
+				B10000000000000000000034 /* LibraryStore.m in Sources */,
+				B10000000000000000000035 /* LibraryViewController.m in Sources */,
+				B10000000000000000000036 /* IssueViewController.m in Sources */,
+				B10000000000000000000037 /* ZoomablePageView.m in Sources */,
+				B10000000000000000000038 /* ArticleViewController.m in Sources */,
+				B10000000000000000000039 /* ArticleListViewController.m in Sources */,
+				B1000000000000000000003A /* SearchViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		A10000000000000000000012 /* Debug */ = {
+		B10000000000000000000012 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -184,13 +206,10 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
 		};
-		A10000000000000000000013 /* Release */ = {
+		B10000000000000000000013 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -206,14 +225,11 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.0;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
-		A10000000000000000000014 /* Debug */ = {
+		B10000000000000000000014 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -223,14 +239,23 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					ImageIO,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.anand.librarynewspaper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
-		A10000000000000000000015 /* Release */ = {
+		B10000000000000000000015 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -240,9 +265,18 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					ImageIO,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.anand.librarynewspaper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -250,25 +284,25 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A10000000000000000000010 /* Build configuration list for PBXProject "LibraryNewspaper" */ = {
+		B10000000000000000000010 /* Build configuration list for PBXProject "LibraryNewspaper" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A10000000000000000000012 /* Debug */,
-				A10000000000000000000013 /* Release */,
+				B10000000000000000000012 /* Debug */,
+				B10000000000000000000013 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A10000000000000000000011 /* Build configuration list for PBXNativeTarget "LibraryNewspaper" */ = {
+		B10000000000000000000011 /* Build configuration list for PBXNativeTarget "LibraryNewspaper" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A10000000000000000000014 /* Debug */,
-				A10000000000000000000015 /* Release */,
+				B10000000000000000000014 /* Debug */,
+				B10000000000000000000015 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = A10000000000000000000001 /* Project object */;
+	rootObject = B10000000000000000000001 /* Project object */;
 }

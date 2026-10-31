@@ -13,11 +13,11 @@ Use the legacy installer explicitly:
 /tmp/legacy-ios-kit/bin/macos/ideviceinstaller -i <path-to.ipa|.app>
 ```
 
-- The kit was **not present** on 2026-10-31 (`/tmp`, `/private/tmp`, `/var/tmp`, `/opt`,
-  `/usr/local` and the home folder were searched). Provision it before relying on this path.
-- `ideviceinstaller` can also be installed with `brew install ideviceinstaller`;
-  the kit path above is the preferred, self-contained location.
+- The kit path is the preferred location. Provision it by symlinking the Homebrew
+  binary: `brew install ideviceinstaller`, then
+  `mkdir -p /tmp/legacy-ios-kit/bin/macos && ln -s "$(command -v ideviceinstaller)" /tmp/legacy-ios-kit/bin/macos/ideviceinstaller`.
 - `/tmp` is cleared on reboot, so the kit may need re-provisioning.
+- `tools/build_legacy.sh` prefers the kit path and falls back to `ideviceinstaller` on `PATH`.
 
 ## Toolchain constraint (important)
 
@@ -25,27 +25,56 @@ The installed Xcode is **26.3 / iOS 26.2 SDK**, which **cannot** produce a binar
 
 - SDK `MinimumDeploymentTarget` is **12.0** (project needs 9.3).
 - `UIKit.tbd` only contains `arm64-ios` / `arm64e-ios` (no armv7).
-- Swift has **no armv7 iOS standard library** (`unable to load standard library for target 'armv7-apple-ios9.3'`).
 - Xcode 26 ships no developer services for iOS 9.x (`ddiServicesAvailable: false`).
 
-To build for the device, use a machine that can run either:
+For **Objective-C** this is only an SDK problem: current clang still emits armv7 object
+code, so the app is built against the community `theos/sdks` **iPhoneOS11.4.sdk**
+(headers + armv7 `.tbd` stubs) with `-target armv7-apple-ios9.3`.
 
-- **macOS 11 Big Sur + Xcode 12.5.1**, or
-- **macOS 12 Monterey + Xcode 13.2.1**.
+For **Swift** the problem is worse and cannot be worked around without an old Xcode:
 
-Build settings for the device build:
+- Swift 5.5.3 toolchains from swift.org still ship an armv7 iOS standard library, but
+  the Foundation/UIKit/Dispatch **Swift overlays live in the Xcode SDK**, not the
+  toolchain. The `theos/sdks` mirrors strip them, so `import Foundation`/`import UIKit`
+  fails (`IndexPath`/`Data`/`URL` missing, `BOOL` imported as `Int8`, `NSDateFormatter`
+  renamed to a type that does not exist).
+- Producing the overlays requires the iOS 14.5/15.2 SDK that ships with Xcode 12.5 or
+  13.2, which Apple only distributes behind a developer-account login.
+
+This is why the app is written in **Objective-C**: it keeps iOS 9.3 / armv7 compatibility
+and can be built on this machine today. Do not reintroduce Swift unless the build moves
+to Xcode 12.5/13.2 (or an SDK with matching Swift overlays).
+
+## Building
+
+```
+tools/build_legacy.sh                # build + install to the connected iPad
+tools/build_legacy.sh --build-only   # build build/legacy/LibraryNewspaper.ipa
+```
+
+What the script does:
+
+1. Provisions `iPhoneOS11.4.sdk` with `tools/provision_sdk.sh` if it is missing
+   (sparse clone of `github.com/theos/sdks` into `/tmp/legacy-sdks`).
+2. Compiles every `LibraryNewspaper/*.m` with
+   `clang -target armv7-apple-ios9.3 -isysroot <SDK> -fobjc-arc -fmodules`.
+3. Links `UIKit`, `Foundation`, `CoreGraphics`, `ImageIO`.
+4. Assembles the bundle (`Info.plist`, `PkgInfo`, `LaunchScreen.storyboardc` compiled
+   with `ibtool --minimum-deployment-target 9.3`).
+5. Signs ad-hoc with `codesign -f -s -` and zips the IPA.
+
+Build settings that matter:
 
 ```
 IPHONEOS_DEPLOYMENT_TARGET=9.3
 ARCHS=armv7
-VALID_ARCHS=armv7
+-target armv7-apple-ios9.3
 ```
-
-The Xcode project in this repo already targets 9.3 and uses only iOS 9-era UIKit APIs.
 
 ## Verifying the code on this machine
 
-The code can still be compiled against a supported SDK to catch errors:
+The Objective-C sources also compile with the current Xcode, which catches syntax and
+API mistakes (do not launch the simulator unless asked):
 
 ```
 xcodebuild -project LibraryNewspaper.xcodeproj -target LibraryNewspaper \
@@ -53,26 +82,27 @@ xcodebuild -project LibraryNewspaper.xcodeproj -target LibraryNewspaper \
   IPHONEOS_DEPLOYMENT_TARGET=15.0 CODE_SIGNING_ALLOWED=NO build
 ```
 
-Do not run the simulator unless asked.
-
 ## Project layout
 
 ```
 LibraryNewspaper.xcodeproj/        Xcode project (programmatic UIKit, no main storyboard)
 LibraryNewspaper/
-  AppDelegate.swift                @UIApplicationMain, navigation controller
-  Models.swift                     IssueInfo / PageInfo / ArticleInfo, JSON parsing
-  LibraryStore.swift               Scans Documents/NewsFiles, articles, OCR, search, image cache
-  LibraryViewController.swift      Issue list + empty state
-  IssueViewController.swift        Paged replica reader, toolbar, article list
-  ZoomablePageView.swift           Pinch/double-tap zoom, tappable article rectangles
-  ArticleViewController.swift      Full-text reader
-  ArticleListViewController.swift  Article picker popover
-  SearchViewController.swift       Full-text search
+  main.m                           UIApplicationMain
+  AppDelegate.h/.m                 Window + navigation controller, dark navigation bar
+  Models.h/.m                      LNIssue / LNPage / LNArticle / LNSearchHit, JSON parsing
+  LibraryStore.h/.m                Scans Documents/NewsFiles, articles, OCR, search, image cache
+  LibraryViewController.h/.m       Issue list + empty state
+  IssueViewController.h/.m         Paged replica reader, toolbar, article list
+  ZoomablePageView.h/.m            Pinch/double-tap zoom, tappable article rectangles
+  ArticleViewController.h/.m       Full-text reader
+  ArticleListViewController.h/.m   Article picker popover
+  SearchViewController.h/.m        Full-text search
   Info.plist                       UIFileSharingEnabled, iOS 9 orientations
   LaunchScreen.storyboard
 Sample/NewsFiles/                  Two generated sample issues
-tools/make_sample.swift            Regenerates the sample issues: `swift tools/make_sample.swift`
+tools/build_legacy.sh              armv7 build, bundle, sign, IPA, install
+tools/provision_sdk.sh             Fetches the legacy iPhoneOS SDK (theos/sdks)
+tools/make_sample.swift            Regenerates the samples: `swift tools/make_sample.swift`
 ```
 
 ## Content format
@@ -93,5 +123,7 @@ let the viewer scale rectangles onto the downsampled image.
 
 - The user fetches replica files themselves. Do **not** add network fetching,
   NewsBank/OpenAthens integration, authentication or scraping code.
-- Keep the app source-compatible with iOS 9.3 / Swift 5 and avoid APIs newer than iOS 9.
+- Keep the app source-compatible with iOS 9.3 and avoid APIs newer than iOS 9.
 - Keep everything on-device; no analytics, no third-party SDKs.
+- Signing is ad-hoc; the iPad needs AppSync Unified (or an equivalent jailbreak patch)
+  to install unsigned/ad-hoc apps. If installation is rejected, check AppSync first.

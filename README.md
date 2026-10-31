@@ -1,137 +1,102 @@
-# News Reader App
+# News Reader
 
-A newspaper reading application for iPad that supports replica image viewing like PressReader.
+An offline replica-newspaper reader for the **iPad 3 (iOS 9.3.5, armv7)**. It shows
+scanned newspaper pages with tappable article regions, a reflowed text reader, and
+full-text search over per-page text.
 
-## Building the App
+You supply the page images and article/OCR data; the app never fetches anything from
+the network.
 
-1. Open the Xcode project:
-   - Navigate to `News Reader.xcodeproj`
-   - Double-click to open
+## Building and installing
 
-2. Ensure you're targeting iOS 9.3.5
-   - Open Project Settings (Cmd + ,)
-   - Go to `Deployment Target`
-   - Set to iOS 9.3.5
+The toolchain is documented in `AGENTS.md`. In short:
 
-3. Build and Run:
-   - Press Cmd + B to build
-   - Press Cmd + R to run on simulator or connected device
+```
+tools/build_legacy.sh                # build + install to the USB iPad
+tools/build_legacy.sh --build-only   # build build/legacy/LibraryNewspaper.ipa
+```
+
+The first run provisions a legacy SDK (`tools/provision_sdk.sh`), then compiles the
+Objective-C sources for `armv7-apple-ios9.3`, signs ad-hoc and installs with
+`/tmp/legacy-ios-kit/bin/macos/ideviceinstaller`.
+
+The sources also compile against the current Xcode for syntax checking:
+
+```
+xcodebuild -project LibraryNewspaper.xcodeproj -target LibraryNewspaper \
+  -sdk iphonesimulator -configuration Debug \
+  IPHONEOS_DEPLOYMENT_TARGET=15.0 CODE_SIGNING_ALLOWED=NO build
+```
 
 ## Features
 
-### Main Interface
-- **Import News**: Import news files from your device
-- **Browse News**: Browse available news issues
+- **Library**: every folder in `Documents/NewsFiles` becomes an issue, newest first,
+  with a first-page thumbnail.
+- **Replica reader**: pinch/double-tap zoom, page slider, swipe or arrow paging,
+  tappable article rectangles, tap the page to hide/show the chrome.
+- **Articles**: article list popover, full-text reader with headline and page marker.
+- **Search**: case-insensitive search across every issue's page text, with snippets
+  and highlighted headlines.
+- **Image handling**: pages are downsampled through ImageIO and cached, so large
+  scans do not exhaust memory.
 
-### Browsing
-- View a list of all imported news issues
-- Each issue shows title, subtitle, and date
-- Tap an issue to view its pages
+## Content format
 
-### Page Viewing
-- View individual pages with zoom support (pinch to zoom)
-- Articles are highlighted on pages (red semi-transparent overlays)
-- Tap highlighted article areas to view full text
-
-### Article Details
-- Full-screen article text view
-- Scrollable content
-- Close button to return to page view
-
-### Search
-- Search across all articles
-- Filter by page number
-- Click results to navigate directly
-
-## File Structure
-
-### Data Organization
-News files should be organized in this structure:
+Content lives in `Documents/NewsFiles/<issue-id>/`:
 
 ```
-NewsFiles/
-├── issue_001/
-│   ├── metadata.json
-│   ├── pages/
-│   │   ├── page_1.jpg
-│   │   ├── page_2.jpg
-│   │   └── ...
-│   ├── articles/
-│   │   ├── article_1.json
-│   │   ├── article_2.json
-│   │   └── ...
-│   └── ocr/
-│       ├── page_1.txt
-│       ├── page_2.txt
-│       └── ...
-└── issue_002/
-    ├── ... (similar structure)
+issue.json        { id, title, subtitle, date, pages: [{ image, width, height }] }
+pages/001.jpg     replica page images (jpg/png/heic/tiff); natural sort fallback
+articles/*.json   { id, page, headline, bounds:{x,y,width,height}, text | textFile }
+ocr/1.txt|1.json  page text for search ("text" or "lines" array)
 ```
 
-### Metadata JSON Format
-Each issue needs a `metadata.json` file:
+`bounds` are in page pixel coordinates; `width`/`height` in `issue.json` let the viewer
+scale rectangles onto the downsampled image. `issue.json` is optional if `pages/`
+contains images.
+
+### Example `issue.json`
 
 ```json
 {
-    "id": "issue_001",
-    "title": "Seattle Times",
-    "subtitle": "August 17, 2026",
-    "date": "08/17/2026",
-    "year": "2026",
-    "pages": 50,
-    "articles": 25
+  "id": "sample-times-2026-10-17",
+  "title": "The Sample Times",
+  "subtitle": "Morning Edition",
+  "date": "2026-10-17",
+  "pages": [
+    { "image": "pages/001.jpg", "width": 1600, "height": 2200 }
+  ]
 }
 ```
 
-### Article JSON Format
-Each article needs an `.json` file:
+### Example article
 
 ```json
 {
-    "id": 1,
-    "headline": "Breaking News Headline",
-    "bounds": {
-        "x": 100.0,
-        "y": 200.0,
-        "width": 300.0,
-        "height": 80.0
-    },
-    "textFile": "article_1.txt"
+  "id": "1-1",
+  "page": 1,
+  "headline": "Council Backs Transit Plan",
+  "bounds": { "x": 80, "y": 230, "width": 1440, "height": 400 },
+  "text": "The city council approved a new budget..."
 }
 ```
 
-### OCR Text Files
-Each OCR text file should be a `.txt` file containing the full article text.
+## Getting content onto the iPad
 
-## Importing News Files
+Use file sharing (iTunes/Finder, or a jailbreak file manager) to copy issue folders into
+the app's `Documents/NewsFiles/`. The app reads the folder on launch and on pull-to-refresh.
 
-1. Run the app on simulator or device
-2. Tap **Import News** button
-3. Select a zip file containing your news files
-4. The app will extract and organize the files in the Documents/NewsFiles directory
+`Sample/NewsFiles/` contains two generated sample issues:
 
-## How It Works
-
-1. **Import**: Files are extracted to `Documents/NewsFiles/{issueId}/`
-2. **Metadata**: Issue metadata is read from `metadata.json` files
-3. **Pages**: Images are loaded directly from the files
-4. **Articles**: Article locations are read from JSON files
-5. **OCR**: Full article text is loaded when needed for viewing
-
-## Performance Notes
-
-- Uses on-device storage only (offline-first)
-- Optimized for iOS 9.3.5 compatibility
-- Supports basic gesture handling (tap, pinch zoom)
-- Memory efficient with lazy loading of article text
+```
+swift tools/make_sample.swift
+```
 
 ## Requirements
 
-- iOS 9.3.5 or later
-- iPad (recommended)
-- Minimum 512MB RAM
-- Sufficient storage space for news files
+- iPad 3 (`iPad3,1`), iOS 9.3.5, armv7, jailbroken
+- AppSync Unified (or equivalent) for ad-hoc signed installs
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License — see `LICENSE`.
