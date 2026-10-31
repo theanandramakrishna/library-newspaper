@@ -6,7 +6,6 @@ Everything needed to rebuild and sideload is already in the repo:
 
 ```
 tools/provision_sdk.sh          # once per reboot; fetches iPhoneOS11.4.sdk into /tmp/legacy-sdks
-tools/provision_installer.sh    # once per reboot; brew install + /tmp/legacy-ios-kit symlink
 tools/build_legacy.sh           # compile armv7, ad-hoc sign, build IPA, install to the USB iPad
 tools/build_legacy.sh --build-only   # just build build/legacy/LibraryNewspaper.ipa
 ```
@@ -25,17 +24,18 @@ changing code or build flags.
 
 ## Sideloading
 
-Use the legacy installer explicitly:
+Installing needs `ideviceinstaller` on `PATH` (`brew install ideviceinstaller`);
+`tools/build_legacy.sh` uses it for the install step. Manual install:
 
 ```
-/tmp/legacy-ios-kit/bin/macos/ideviceinstaller -i <path-to.ipa|.app>
+ideviceinstaller -i build/legacy/LibraryNewspaper.ipa
 ```
 
-- The kit path is the preferred location. Provision it by symlinking the Homebrew
-  binary: `brew install ideviceinstaller`, then
-  `mkdir -p /tmp/legacy-ios-kit/bin/macos && ln -s "$(command -v ideviceinstaller)" /tmp/legacy-ios-kit/bin/macos/ideviceinstaller`.
-- `/tmp` is cleared on reboot, so the kit may need re-provisioning.
-- `tools/build_legacy.sh` prefers the kit path and falls back to `ideviceinstaller` on `PATH`.
+- No symlinks or wrapper paths: the Homebrew binary is used directly.
+- `/tmp` is cleared on reboot, so the SDK (`/tmp/legacy-sdks`) may need
+  re-provisioning; `ideviceinstaller` itself survives reboots.
+- `tools/build_legacy.sh` falls back to a plain `PATH` lookup, and honours
+  `INSTALLER=/path/to/ideviceinstaller` if you ever need to override it.
 
 ## Toolchain constraint (important)
 
@@ -120,7 +120,6 @@ LibraryNewspaper/
 Sample/NewsFiles/                  Two generated sample issues
 tools/build_legacy.sh              armv7 build, bundle, sign, IPA, install
 tools/provision_sdk.sh             Fetches the legacy iPhoneOS SDK (theos/sdks)
-tools/provision_installer.sh       Homebrew ideviceinstaller + /tmp/legacy-ios-kit symlink
 tools/make_sample.swift            Regenerates the samples: `swift tools/make_sample.swift`
 ```
 
@@ -151,11 +150,10 @@ let the viewer scale rectangles onto the downsampled image.
 
 Work through these in order; most failures are environmental, not code problems.
 
-1. **`ideviceinstaller: command not found`** — run `tools/provision_installer.sh`
-   (it brews `ideviceinstaller` and symlinks it to
-   `/tmp/legacy-ios-kit/bin/macos/ideviceinstaller`). The Homebrew build pulls
-   `libimobiledevice`, which compiles from source here and takes several minutes;
-   do not assume it hung.
+1. **`ideviceinstaller: command not found`** — install it with
+   `brew install ideviceinstaller` and make sure `/usr/local/bin` is on `PATH`. The
+   Homebrew build pulls `libimobiledevice`, which compiles from source here and takes
+   several minutes; do not assume it hung.
 2. **`Could not connect to lockdownd` / `No device found`** — the device is not
    paired or usbmuxd cannot see it. Check with
    `xcrun devicectl list devices`, then pair explicitly:
@@ -179,8 +177,9 @@ Work through these in order; most failures are environmental, not code problems.
    `armv7`, and `otool -l ... | grep -A3 LC_VERSION_MIN_IPHONEOS` must show `9.3`.
    If it says `arm64` something built with plain Xcode settings instead of
    `tools/build_legacy.sh`.
-6. **`/tmp/legacy-ios-kit` or `/tmp/legacy-sdks` disappeared** — `/tmp` is cleared on
-   reboot. Re-run `tools/provision_installer.sh` and `tools/provision_sdk.sh`.
+6. **`/tmp/legacy-sdks` disappeared** — `/tmp` is cleared on reboot. Re-run
+   `tools/provision_sdk.sh` (or just `tools/build_legacy.sh`, which provisions the SDK
+   automatically). `ideviceinstaller` lives in Homebrew and is unaffected.
 7. **Sideloading a debug build** — you can also install the `.app` directory directly
    (`ideviceinstaller -i build/legacy/LibraryNewspaper.app`); the IPA is just a zip of
    `Payload/` around it.

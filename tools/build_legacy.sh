@@ -16,7 +16,7 @@
 #
 # Environment:
 #   LEGACY_SDK    path to the SDK (default: /tmp/legacy-sdks/iPhoneOS11.4.sdk)
-#   INSTALLER     ideviceinstaller path (default: the kit path, then PATH)
+#   INSTALLER     ideviceinstaller path (default: ideviceinstaller on PATH)
 #
 set -euo pipefail
 
@@ -89,11 +89,8 @@ if [ "$BUILD_ONLY" = "1" ]; then
     exit 0
 fi
 
-INSTALLER="${INSTALLER:-/tmp/legacy-ios-kit/bin/macos/ideviceinstaller}"
-if [ ! -x "$INSTALLER" ]; then
-    INSTALLER="$(command -v ideviceinstaller || true)"
-fi
-if [ -z "$INSTALLER" ]; then
+INSTALLER="${INSTALLER:-$(command -v ideviceinstaller || true)}"
+if [ -z "$INSTALLER" ] || [ ! -x "$INSTALLER" ]; then
     echo "ideviceinstaller not found; install it with 'brew install ideviceinstaller'" >&2
     exit 1
 fi

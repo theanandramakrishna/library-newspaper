@@ -18,7 +18,7 @@ tools/build_legacy.sh --build-only   # build build/legacy/LibraryNewspaper.ipa
 
 The first run provisions a legacy SDK (`tools/provision_sdk.sh`), then compiles the
 Objective-C sources for `armv7-apple-ios9.3`, signs ad-hoc and installs with
-`/tmp/legacy-ios-kit/bin/macos/ideviceinstaller`.
+`ideviceinstaller` (from `brew install ideviceinstaller`).
 
 The sources also compile against the current Xcode for syntax checking:
 
