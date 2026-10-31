@@ -1,5 +1,23 @@
 # AGENTS.md
 
+## Quick start (resume here)
+
+Everything needed to rebuild and sideload is already in the repo:
+
+```
+tools/provision_sdk.sh          # once per reboot; fetches iPhoneOS11.4.sdk into /tmp/legacy-sdks
+tools/provision_installer.sh    # once per reboot; brew install + /tmp/legacy-ios-kit symlink
+tools/build_legacy.sh           # compile armv7, ad-hoc sign, build IPA, install to the USB iPad
+tools/build_legacy.sh --build-only   # just build build/legacy/LibraryNewspaper.ipa
+```
+
+Verified on 2026-10-31: the build produces `Mach-O executable arm_v7` with
+`LC_VERSION_MIN_IPHONEOS 9.3`. Do not assume the old Swift setup works — see the
+toolchain section below for why the app is Objective-C.
+
+If the install fails, read "Troubleshooting the install" at the bottom before
+changing code or build flags.
+
 ## Target device
 
 - **iPad 3 (`iPad3,1`)**, iOS **9.3.5**, **armv7 (32-bit)**.
@@ -102,6 +120,7 @@ LibraryNewspaper/
 Sample/NewsFiles/                  Two generated sample issues
 tools/build_legacy.sh              armv7 build, bundle, sign, IPA, install
 tools/provision_sdk.sh             Fetches the legacy iPhoneOS SDK (theos/sdks)
+tools/provision_installer.sh       Homebrew ideviceinstaller + /tmp/legacy-ios-kit symlink
 tools/make_sample.swift            Regenerates the samples: `swift tools/make_sample.swift`
 ```
 
@@ -127,3 +146,41 @@ let the viewer scale rectangles onto the downsampled image.
 - Keep everything on-device; no analytics, no third-party SDKs.
 - Signing is ad-hoc; the iPad needs AppSync Unified (or an equivalent jailbreak patch)
   to install unsigned/ad-hoc apps. If installation is rejected, check AppSync first.
+
+## Troubleshooting the install
+
+Work through these in order; most failures are environmental, not code problems.
+
+1. **`ideviceinstaller: command not found`** — run `tools/provision_installer.sh`
+   (it brews `ideviceinstaller` and symlinks it to
+   `/tmp/legacy-ios-kit/bin/macos/ideviceinstaller`). The Homebrew build pulls
+   `libimobiledevice`, which compiles from source here and takes several minutes;
+   do not assume it hung.
+2. **`Could not connect to lockdownd` / `No device found`** — the device is not
+   paired or usbmuxd cannot see it. Check with
+   `xcrun devicectl list devices`, then pair explicitly:
+   ```
+   idevicepair pair       # tap "Trust" on the iPad
+   idevicepair validate
+   ```
+   Reconnecting the cable or rebooting the iPad usually requires pairing again.
+3. **`ERROR: Install failed. Got error "ApplicationVerificationFailed"`** — the iPad
+   rejected the ad-hoc signature. That means AppSync Unified is missing or disabled.
+   Check what is installed with `ideviceinstaller -l`; if the list is empty or the
+   call fails, install/enable AppSync Unified in Cydia and retry. There is no
+   fallback: this Mac has no codesigning identity (`security find-identity -v -p
+   codesigning` reports zero) and no provisioning profiles, so re-signing properly
+   is not an option.
+4. **`APIInternalError` / `MismatchedApplicationIdentifierEntitlement`** — a build with
+   the same bundle identifier is already installed. Uninstall first:
+   `ideviceinstaller -U com.anand.librarynewspaper`, then install again.
+5. **App installs but crashes on launch on iOS 9.3** — confirm the binary is really
+   armv7: `lipo -info build/legacy/LibraryNewspaper.app/LibraryNewspaper` must say
+   `armv7`, and `otool -l ... | grep -A3 LC_VERSION_MIN_IPHONEOS` must show `9.3`.
+   If it says `arm64` something built with plain Xcode settings instead of
+   `tools/build_legacy.sh`.
+6. **`/tmp/legacy-ios-kit` or `/tmp/legacy-sdks` disappeared** — `/tmp` is cleared on
+   reboot. Re-run `tools/provision_installer.sh` and `tools/provision_sdk.sh`.
+7. **Sideloading a debug build** — you can also install the `.app` directory directly
+   (`ideviceinstaller -i build/legacy/LibraryNewspaper.app`); the IPA is just a zip of
+   `Payload/` around it.
