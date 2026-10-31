@@ -96,6 +96,7 @@ if [ -z "$INSTALLER" ] || [ ! -x "$INSTALLER" ]; then
 fi
 
 echo "==> Installing with $INSTALLER"
-"$INSTALLER" -i "$BUILD/LibraryNewspaper.ipa"
+# ideviceinstaller 1.2.x uses subcommands; the old "-i" flag was removed.
+"$INSTALLER" install "$BUILD/LibraryNewspaper.ipa"
 
 echo "==> Done. Launch 'News Reader' on the iPad."

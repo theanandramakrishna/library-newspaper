@@ -28,9 +28,11 @@ Installing needs `ideviceinstaller` on `PATH` (`brew install ideviceinstaller`);
 `tools/build_legacy.sh` uses it for the install step. Manual install:
 
 ```
-ideviceinstaller -i build/legacy/LibraryNewspaper.ipa
+ideviceinstaller install build/legacy/LibraryNewspaper.ipa
 ```
 
+- `ideviceinstaller` 1.2.x uses subcommands (`install`, `uninstall`, `list`,
+  `upgrade`); the old one-letter flags (`-i`, `-U`, `-l`) were removed in 1.2.0.
 - No symlinks or wrapper paths: the Homebrew binary is used directly.
 - `/tmp` is cleared on reboot, so the SDK (`/tmp/legacy-sdks`) may need
   re-provisioning; `ideviceinstaller` itself survives reboots.
@@ -164,14 +166,14 @@ Work through these in order; most failures are environmental, not code problems.
    Reconnecting the cable or rebooting the iPad usually requires pairing again.
 3. **`ERROR: Install failed. Got error "ApplicationVerificationFailed"`** — the iPad
    rejected the ad-hoc signature. That means AppSync Unified is missing or disabled.
-   Check what is installed with `ideviceinstaller -l`; if the list is empty or the
+   Check what is installed with `ideviceinstaller list`; if the list is empty or the
    call fails, install/enable AppSync Unified in Cydia and retry. There is no
    fallback: this Mac has no codesigning identity (`security find-identity -v -p
    codesigning` reports zero) and no provisioning profiles, so re-signing properly
    is not an option.
 4. **`APIInternalError` / `MismatchedApplicationIdentifierEntitlement`** — a build with
    the same bundle identifier is already installed. Uninstall first:
-   `ideviceinstaller -U com.anand.librarynewspaper`, then install again.
+   `ideviceinstaller uninstall com.anand.librarynewspaper`, then install again.
 5. **App installs but crashes on launch on iOS 9.3** — confirm the binary is really
    armv7: `lipo -info build/legacy/LibraryNewspaper.app/LibraryNewspaper` must say
    `armv7`, and `otool -l ... | grep -A3 LC_VERSION_MIN_IPHONEOS` must show `9.3`.
@@ -181,5 +183,5 @@ Work through these in order; most failures are environmental, not code problems.
    `tools/provision_sdk.sh` (or just `tools/build_legacy.sh`, which provisions the SDK
    automatically). `ideviceinstaller` lives in Homebrew and is unaffected.
 7. **Sideloading a debug build** — you can also install the `.app` directory directly
-   (`ideviceinstaller -i build/legacy/LibraryNewspaper.app`); the IPA is just a zip of
-   `Payload/` around it.
+   (`ideviceinstaller install build/legacy/LibraryNewspaper.app`); the IPA is just a
+   zip of `Payload/` around it.
