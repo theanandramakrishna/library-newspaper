@@ -493,14 +493,19 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
     return self;
 }
 
+- (NSString *)keyForURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
+    return [NSString stringWithFormat:@"%@|%ld", url.path, (long)maxPixelSize];
+}
+
 - (UIImage *)cachedImageForURL:(NSURL *)url {
-    return [self.cache objectForKey:url.path];
+    return [self.cache objectForKey:[self keyForURL:url maxPixelSize:3200]];
 }
 
 - (void)loadImageForURL:(NSURL *)url
            maxPixelSize:(CGFloat)maxPixelSize
              completion:(void (^)(UIImage *))completion {
-    UIImage *cached = [self.cache objectForKey:url.path];
+    NSString *key = [self keyForURL:url maxPixelSize:maxPixelSize];
+    UIImage *cached = [self.cache objectForKey:key];
     if (cached != nil) {
         completion(cached);
         return;
@@ -509,7 +514,7 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
     dispatch_async(self.queue, ^{
         UIImage *image = [ImageLoader downsampleURL:url maxPixelSize:maxPixelSize];
         if (image != nil) {
-            [self.cache setObject:image forKey:url.path];
+            [self.cache setObject:image forKey:key];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             completion(image);
