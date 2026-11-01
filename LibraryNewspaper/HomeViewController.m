@@ -238,6 +238,8 @@ static NSInteger const LHMaxPapers = 5;
             [self presentViewController:alert animated:YES completion:nil];
             return;
         }
+        // Pop the background webview controller and show the downloaded issue.
+        [self.navigationController popViewControllerAnimated:YES];
         [self showIssue:fetchedIssue];
     };
     self.authVC = auth;

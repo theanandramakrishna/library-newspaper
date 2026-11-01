@@ -411,6 +411,8 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _webView.scalesPageToFit = YES;
     _webView.delegate = self;
+    // Run the auth + download flow in the background; the user never sees it.
+    _webView.hidden = YES;
     [self.view addSubview:_webView];
 }
 
@@ -861,6 +863,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
     df.dateFormat = @"yyyy-MM-dd";
     _issueIDString = [NSString stringWithFormat:@"STS2S-EEDT-%@", [df stringFromDate:issueDate]];
     _nextDownloadPage = 1;
+    _downloadRetries = 0;
 
     NSLog(@"[auth] download starting for issue %@", _issueIDString);
 
@@ -883,21 +886,75 @@ static NSString * const LNEmbeddedAuthFrameScript =
     NSString *imageURL = info[@"image"] ?: @"";
     NSString *nextPage = info[@"nextPage"] ?: @"";
 
-    if (imageURL.length > 0) {
+    if (imageURL.length > 0 && nextPage.length > 0) {
+        // Found both page image and next-page link: download image, advance.
+        _downloadRetries = 0;
         [self downloadImageAtURLString:imageURL];
-    }
-
-    if (nextPage.length > 0) {
         NSURL *url = [NSURL URLWithString:nextPage];
         if (url) {
             _navigationPending = YES;
             [_webView loadRequest:[NSURLRequest requestWithURL:url]];
             return;
         }
+        // No next page link but we have the image: last page.
+        [self finishDownload];
+        return;
     }
 
-    // No more pages: save the issue to disk.
+    if (imageURL.length > 0) {
+        // Found image but no next-page link: last page.
+        _downloadRetries = 0;
+        [self downloadImageAtURLString:imageURL];
+        [self finishDownload];
+        return;
+    }
+
+    if (nextPage.length > 0) {
+        // Found next-page link but image not rendered yet: retry before
+        // advancing, so we don't skip a page.
+        _downloadRetries++;
+        if (_downloadRetries < 4) {
+            NSLog(@"[auth] download: next page found, waiting for image (retry %ld)", (long)_downloadRetries);
+            [self startDownloadRetryTimer];
+            return;
+        }
+        // Retries exhausted: advance without this page's image.
+        _downloadRetries = 0;
+        NSURL *url = [NSURL URLWithString:nextPage];
+        if (url) {
+            _navigationPending = YES;
+            [_webView loadRequest:[NSURLRequest requestWithURL:url]];
+            return;
+        }
+        [self finishDownload];
+        return;
+    }
+
+    // Nothing found at all: retry.
+    _downloadRetries++;
+    if (_downloadRetries < 4) {
+        NSLog(@"[auth] download: nothing usable yet (retry %ld)", (long)_downloadRetries);
+        [self startDownloadRetryTimer];
+        return;
+    }
+
+    // No more pages (or retries exhausted): save the issue to disk.
     [self finishDownload];
+}
+
+// Schedules a re-check of the current page after a short delay, in case the
+// page image or next-page link is still rendering.
+- (void)startDownloadRetryTimer {
+    [_downloadRetryTimer invalidate];
+    _downloadRetryTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
+                                                           target:self
+                                                         selector:@selector(downloadRetryTick)
+                                                         userInfo:nil
+                                                          repeats:NO];
+}
+
+- (void)downloadRetryTick {
+    [self downloadTick];
 }
 
 // Downloads a single page image from the given URL string.
@@ -954,6 +1011,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
 // Saves the issue metadata (issue.json) and finishes the download.
 - (void)finishDownload {
     _downloadActive = NO;
+    [_downloadRetryTimer invalidate];
 
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *documentsPath = paths.firstObject;
