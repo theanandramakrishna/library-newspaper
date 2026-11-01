@@ -94,7 +94,9 @@ cannot run the site's modern JavaScript. Each NewsBank step is polled every
 content fails with a diagnostic dump instead of hanging).
 - Failure policy (user decision): any unrecognized page, load error, or 60 s
   step timeout → alert naming the step (plus URL / link dump for diagnosis),
-  then pop back to the logon screen. **No manual fallback, no retries.**
+  then **stay in the web view**. The alert offers "Retry" (re-arms the current
+  step) or "Dismiss" (stay put). It does **not** pop back to the logon screen
+  and does **not** auto-retry beyond the per-step polling cap.
 - The NewsBank reader is viewed **inside the embedded web view only**. Never
   download/scrape issue content to disk.
 - `Info.plist` sets `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` (needed
