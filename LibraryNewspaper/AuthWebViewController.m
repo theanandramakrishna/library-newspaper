@@ -1226,7 +1226,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
 
     NSLog(@"[auth] download complete: %ld pages saved", (long)_pageImageURLs.count);
 
-    if (_onComplete) {
+    // Only call onComplete if we haven't already (page 1 delivery already did).
+    // If first page was delivered, the user is already reading; issue.json is saved
+    // and pages are on disk for the offline reader to load as needed.
+    if (_onComplete && !_firstPageDelivered) {
         _onComplete(issue, nil);
     }
 }
