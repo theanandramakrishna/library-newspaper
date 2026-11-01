@@ -9,13 +9,25 @@ static NSString * const LNRedirectorURLString =
 static const NSTimeInterval LNStepTimeoutSeconds = 60.0;
 static const NSInteger LNMaxTotalSubmissions = 5;
 
+// How many 1.5 s polls a NewsBank step waits for its page to appear before it
+// gives up (a JS-rendered page gets several seconds; a blank page fails).
+static const NSInteger LNNewsBankMaxAttempts = 8;
+
+// The image edition of the Seattle Times, reached directly through the
+// OpenAthens proxy. This is the "Format: Image" product in the Seattle Times
+// Collection table (code STS2S-EEDT, 2018-Current); STIW is the text edition.
+// Navigating here directly avoids depending on the intermediate pages.
+static NSString * const LNImageEditionURLString =
+    @"https://infoweb-newsbank-com.us1.proxy.openathens.net/apps/news/browse-pub"
+    @"?p=NewsBank&t=pubname%3ASTS2S-EEDT%21Seattle%2BTimes%252C%2BThe%2B%2528WA%2529"
+    @"&action=browse";
+
 // What the flow is waiting for. Each step names the page that must appear
 // next; the timeout applies per step.
 typedef NS_ENUM(NSInteger, LNAuthStep) {
     LNAuthStepAwaitLoginForm,      // redirector loaded; looking for the login form
     LNAuthStepAwaitNewsBank,       // credentials submitted; waiting for NewsBank
-    LNAuthStepAwaitCollectionClick, // NewsBank landing; open Seattle Times Collection
-    LNAuthStepAwaitImageFormatClick,// collection page; open the image format
+    LNAuthStepAwaitImageEdition,   // NewsBank reached; open the image edition
     LNAuthStepAwaitIssueClick,     // edition page; open the most recent issue
     LNAuthStepDone                 // reading; no further automation
 };
@@ -50,8 +62,6 @@ static NSString *LNJavaScriptString(NSString *value) {
 //   NOFORM                                - nothing actionable on the page
 //   NOSUBMIT                              - fields found but no way to submit
 //   SUBMITTED:both|user|pass|saml:how     - form sent (which fields, and how)
-// It also looks inside same-origin iframes. Uses createEvent so it works on
-// iOS 9's engine.
 // It also looks inside same-origin iframes. Uses createEvent so it works on
 // iOS 9's engine.
 static NSString *LNCredentialProbeScript(NSString *username, NSString *password) {
@@ -145,7 +155,7 @@ static NSString *LNClickLinkScript(NSString *term) {
         "if(txt.indexOf(term)>=0){"
         "if(a.target==='_blank')a.target='';"
         "a.click();"
-        "return 'CLICKED';"
+        "return 'CLICKED:'+(a.getAttribute('href')||'').substring(0,110);"
         "}"
         "}"
         "for(var k=0;k<links.length&&k<25;k++){"
@@ -153,19 +163,26 @@ static NSString *LNClickLinkScript(NSString *term) {
         "var bt=(b.textContent||'').replace(/\\s+/g,' ').substring(0,50);"
         "dump.push(bt+' => '+(b.getAttribute('href')||'').substring(0,90));"
         "}"
-        "return 'NOTFOUND\\n'+dump.join('\\n');"
+        "return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+links.length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,120)+'\\n'+dump.join('\\n');"
         "})()",
         LNJavaScriptString([term lowercaseString])];
 }
 
 // Clicks the "Image" format edition in the Seattle Times Collection table.
-// The collection page is a table (Source | Dates | Location | Type | Format |
-// Language) with two rows both named "Seattle Times, The (WA)" — only the row
-// whose Format cell says "Image" is the image edition (code STS2S-EEDT; the
-// other, STIW, is the text edition). Falls back to the known code, then dumps
-// the page's links for diagnosis.
-static NSString * const LNClickImageEditionScript =
+// Finds the absolute URL of the Seattle Times image edition on the collection
+// page. The collection page is a table (Source | Dates | Location | Type |
+// Format | Language) with two rows both named "Seattle Times, The (WA)" — the
+// image edition is the one whose href carries the STS2S-EEDT code (the other,
+// STIW, is the text edition), or whose Format cell says "Image". Returns
+// 'URL:<absolute>' on success, else 'NOTFOUND' plus a diagnostic dump.
+static NSString * const LNImageEditionURLScript =
     @"(function(){"
+    "function abs(p){var x=document.createElement('a');x.href=p;return x.href;}"
+    "var links=document.querySelectorAll('a[href*=browse-pub]');"
+    "for(var k=0;k<links.length;k++){"
+    "var h=links[k].getAttribute('href')||'';"
+    "if(h.indexOf('STS2S-EEDT')>=0)return 'URL:'+abs(h);"
+    "}"
     "var rows=document.querySelectorAll('tr');"
     "for(var i=0;i<rows.length;i++){"
     "var a=rows[i].querySelector('a[href*=\"browse-pub\"]');"
@@ -173,20 +190,7 @@ static NSString * const LNClickImageEditionScript =
     "var cells=rows[i].querySelectorAll('td');"
     "for(var j=0;j<cells.length;j++){"
     "var c=(cells[j].textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();"
-    "if(c==='image'){"
-    "if(a.target==='_blank')a.target='';"
-    "a.click();"
-    "return 'CLICKED:image-row';"
-    "}"
-    "}"
-    "}"
-    "var links=document.querySelectorAll('a[href*=browse-pub]');"
-    "for(var k=0;k<links.length;k++){"
-    "var h=links[k].getAttribute('href')||'';"
-    "if(h.indexOf('STS2S-EEDT')>=0){"
-    "if(links[k].target==='_blank')links[k].target='';"
-    "links[k].click();"
-    "return 'CLICKED:code';"
+    "if(c==='image')return 'URL:'+abs(a.getAttribute('href')||'');"
     "}"
     "}"
     "var dump=[];"
@@ -194,16 +198,17 @@ static NSString * const LNClickImageEditionScript =
     "for(var m=0;m<all.length&&m<25;m++){"
     "dump.push(((all[m].textContent||'').replace(/\\s+/g,' ').substring(0,40))+' => '+((all[m].getAttribute('href')||'').substring(0,80)));"
     "}"
-    "return 'NOTFOUND\\n'+dump.join('\\n');"
+    "return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+all.length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,200)+'\\n'+dump.join('\\n');"
     "})()";
 
-// Picks the most recent issue from the publication page's "View Recent
-// Issues" list. Those links point at issue-browse with a mody:MMDD parameter
-// and format=image; only links whose text is a full date count (the page also
-// has a bare day-number calendar for the same month). Picks the largest
-// mody value.
-static NSString * const LNPickIssueScript =
+// Finds the absolute URL of the most recent issue on the publication page's
+// "View Recent Issues" list. Those links point at issue-browse with a
+// mody:MMDD parameter and format=image; only links whose text is a full date
+// count (the page also has a bare day-number calendar for the same month).
+// Picks the largest mody value. Returns 'URL:<absolute>' or 'NOTFOUND'+dump.
+static NSString * const LNPickIssueURLScript =
     @"(function(){"
+    "function abs(p){var x=document.createElement('a');x.href=p;return x.href;}"
     "var links=document.querySelectorAll('a[href*=issue-browse]');"
     "var best=null;"
     "var bestMody=-1;"
@@ -211,19 +216,19 @@ static NSString * const LNPickIssueScript =
     "var dump=[];"
     "for(var i=0;i<links.length;i++){"
     "var a=links[i];"
-    "var href=decodeURIComponent(a.getAttribute('href')||'');"
-    "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
+    "var raw=a.getAttribute('href')||'';"
+    "var href=decodeURIComponent(raw);"
+    "if(href.indexOf('format=image')<0)continue;"
     "var m=href.match(/mody:(\\d{4})/);"
     "if(!m)continue;"
-    "dump.push(txt.substring(0,40)+' => '+href.substring(0,90));"
+    "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
+    "dump.push(txt.substring(0,40)+' => '+raw.substring(0,90));"
     "if(!dateRe.test(txt))continue;"
     "var mody=parseInt(m[1],10);"
-    "if(mody>bestMody){bestMody=mody;best=a;}"
+    "if(mody>bestMody){bestMody=mody;best=raw;}"
     "}"
-    "if(!best)return 'NOTFOUND\\n'+dump.slice(0,25).join('\\n');"
-    "if(best.target==='_blank')best.target='';"
-    "best.click();"
-    "return 'CLICKED:mody'+bestMody;"
+    "if(!best)return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+document.querySelectorAll('a').length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,180)+'\\n'+dump.slice(0,25).join('\\n');"
+    "return 'URL:'+abs(best);"
     "})()";
 
 // Dumps the structure of a page that keeps reporting NOFORM: title, inputs,
@@ -309,8 +314,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
 @property (nonatomic, assign) NSInteger totalSubmissions;
 @property (nonatomic, strong) NSString *lastFullSubmitHost;
 @property (nonatomic, copy) NSString *lastProbeResult;
+@property (nonatomic, copy) NSString *lastHandledURLString;
+@property (nonatomic, assign) NSInteger attempts;
+@property (nonatomic, assign) BOOL navigationPending;
 @property (nonatomic, assign) BOOL rescueNavigated;
-@property (nonatomic, assign) BOOL issuePickAttempted;
 @property (nonatomic, assign) BOOL started;
 
 @end
@@ -381,10 +388,8 @@ static NSString * const LNEmbeddedAuthFrameScript =
         case LNAuthStepAwaitLoginForm:
         case LNAuthStepAwaitNewsBank:
             return @"Signing in…";
-        case LNAuthStepAwaitCollectionClick:
-            return @"Opening Seattle Times Collection…";
-        case LNAuthStepAwaitImageFormatClick:
-            return @"Opening image format…";
+        case LNAuthStepAwaitImageEdition:
+            return @"Opening the Seattle Times image edition…";
         case LNAuthStepAwaitIssueClick:
             return @"Opening the latest issue…";
         case LNAuthStepDone:
@@ -419,13 +424,24 @@ static NSString * const LNEmbeddedAuthFrameScript =
 }
 
 - (void)handlePageLoad {
+    // UIWebView fires didFinishLoad for subframes too; the step machine must
+    // only run once per main-document page. A duplicate event for a page we
+    // already handled is skipped unless a click/submit started a navigation.
+    NSString *currentURL = _webView.request.mainDocumentURL.absoluteString ?: @"";
+    if (!_navigationPending && [_lastHandledURLString isEqualToString:currentURL]) {
+        return;
+    }
+    _navigationPending = NO;
+    _lastHandledURLString = [currentURL copy];
+
     if (_step == LNAuthStepDone) {
         return;
     }
     [self resetTimeout];
+    _attempts = 0;
 
     NSString *host = _webView.request.mainDocumentURL.host.lowercaseString;
-    NSLog(@"[auth] page loaded (step %ld): %@", (long)_step, host ?: @"(nil)");
+    NSLog(@"[auth] page loaded (step %ld): %@", (long)_step, currentURL);
 
     // Authenticated NewsBank pages are served through the OpenAthens proxy
     // domain (infoweb-newsbank-com.us1.proxy.openathens.net), so match on
@@ -433,7 +449,18 @@ static NSString * const LNEmbeddedAuthFrameScript =
     BOOL isNewsBank = [host containsString:@"newsbank"];
 
     if (isNewsBank) {
-        [self handleNewsBankPage];
+        if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
+            [self setStep:LNAuthStepAwaitImageEdition];
+        }
+        if (_step == LNAuthStepAwaitIssueClick &&
+            [self isImageViewerURL:currentURL]) {
+            NSLog(@"[auth] image viewer reached; automation complete");
+            [self setStep:LNAuthStepDone];
+            [_timeoutTimer invalidate];
+            [_pollTimer invalidate];
+            return;
+        }
+        [self startStepPolling];
         return;
     }
 
@@ -445,12 +472,27 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 }
 
+// The image-edition viewer is the issue-browse URL with format=image.
+- (BOOL)isImageViewerURL:(NSString *)urlString {
+    NSString *lower = urlString.lowercaseString;
+    return [lower containsString:@"issue-browse"] &&
+           [lower containsString:@"format=image"];
+}
+
+- (void)loadAbsoluteURL:(NSString *)urlString {
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (url == nil) {
+        [self failWithReason:@"The site returned a link the app could not open."
+                      detail:urlString];
+        return;
+    }
+    [_webView loadRequest:[NSURLRequest requestWithURL:url]];
+}
+
 // Called once per page load on a non-NewsBank page: probe immediately, then
 // keep polling while the page may still be building its form (SPA two-step
 // login: username first, password appears in place afterwards).
 - (void)startLoginHandling {
-    [_pollTimer invalidate];
-
     // If a page we already fully submitted comes back as a fresh load, the
     // credentials were rejected (e.g. the catalog login reappearing).
     NSString *host = _webView.request.mainDocumentURL.host.lowercaseString;
@@ -466,22 +508,40 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _userSubmittedThisPage = 0;
     _noFormTicks = 0;
     _lastProbeResult = nil;
-
-    // Schedule the poll BEFORE the immediate probe: the probe can complete a
-    // login and invalidate the timer, which is only meaningful if it exists.
-    if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
-        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
-                                                      target:self
-                                                    selector:@selector(loginProbeTick)
-                                                    userInfo:nil
-                                                     repeats:YES];
-    }
-    [self loginProbeTick];
+    [self startStepPolling];
 }
 
-- (void)loginProbeTick {
+// (Re)starts the 1.5 s poll that drives the current step, then probes once
+// immediately. The timer is scheduled before the immediate probe so that a
+// probe which finishes the step can invalidate a timer that actually exists.
+- (void)startStepPolling {
+    [_pollTimer invalidate];
+    _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
+                                                  target:self
+                                                selector:@selector(probeTick)
+                                                userInfo:nil
+                                                 repeats:YES];
+    [self probeTick];
+}
+
+- (void)probeTick {
+    switch (_step) {
+        case LNAuthStepAwaitLoginForm:
+        case LNAuthStepAwaitNewsBank:
+            [self loginTick];
+            break;
+        case LNAuthStepAwaitImageEdition:
+        case LNAuthStepAwaitIssueClick:
+            [self newsbankTick];
+            break;
+        case LNAuthStepDone:
+            [_pollTimer invalidate];
+            break;
+    }
+}
+
+- (void)loginTick {
     if (_step != LNAuthStepAwaitLoginForm && _step != LNAuthStepAwaitNewsBank) {
-        [_pollTimer invalidate];
         return;
     }
     if (_submissionsThisPage >= 2 || _userSubmittedThisPage >= 1) {
@@ -499,6 +559,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
 
     if (submitted) {
         _submissionsThisPage++;
+        _navigationPending = YES;
 
         NSArray *parts = [result componentsSeparatedByString:@":"];
         NSString *kind = parts.count > 2 ? parts[1] : @"";
@@ -550,6 +611,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         if (url) {
             NSLog(@"[auth] interstitial redirect target, following: %@", target);
             _rescueNavigated = YES;
+            _navigationPending = YES;
             [_webView loadRequest:[NSURLRequest requestWithURL:url]];
             return;
         }
@@ -565,73 +627,79 @@ static NSString * const LNEmbeddedAuthFrameScript =
         ![frameURL.host.lowercaseString isEqualToString:current.host.lowercaseString]) {
         NSLog(@"[auth] login form seems to be an embedded frame; opening it directly");
         _rescueNavigated = YES;
+        _navigationPending = YES;
         [_webView loadRequest:[NSURLRequest requestWithURL:frameURL]];
     }
 }
 
-- (void)handleNewsBankPage {
-    NSString *result = nil;
-    NSLog(@"[auth] NewsBank page at step %ld", (long)_step);
-    [_pollTimer invalidate];
+// Drives the NewsBank steps. Runs every 1.5 s (and once when a page loads), so
+// a page whose content appears late still works, and a page that never shows
+// the expected content fails with a diagnostic dump instead of hanging.
+- (void)newsbankTick {
+    if (_navigationPending) {
+        return;  // a navigation is in flight; wait for it to land
+    }
 
-    switch (_step) {
-        case LNAuthStepAwaitLoginForm:
-        case LNAuthStepAwaitNewsBank:
-            // An already-authenticated session can land straight on NewsBank.
-            [self setStep:LNAuthStepAwaitCollectionClick];
-            // fall through
+    NSString *urlString = _webView.request.mainDocumentURL.absoluteString ?: @"";
+    if ([self isImageViewerURL:urlString]) {
+        NSLog(@"[auth] image viewer reached; automation complete");
+        [self setStep:LNAuthStepDone];
+        [_timeoutTimer invalidate];
+        [_pollTimer invalidate];
+        return;
+    }
 
-        case LNAuthStepAwaitCollectionClick:
-            result = [self runScript:LNClickLinkScript(@"seattle times")] ?: @"";
-            if (![result hasPrefix:@"CLICKED"]) {
-                [self failWithReason:@"Could not find the Seattle Times Collection link."
-                              detail:result];
-                return;
-            }
-            NSLog(@"[auth] clicked Seattle Times Collection");
-            [self setStep:LNAuthStepAwaitImageFormatClick];
-            return;
+    NSString *result = @"";
+    NSString *target = nil;
 
-        case LNAuthStepAwaitImageFormatClick:
-            result = [self runScript:LNClickImageEditionScript] ?: @"";
-            if (![result hasPrefix:@"CLICKED"]) {
-                [self failWithReason:@"Could not find the Seattle Times image edition."
-                              detail:result];
-                return;
-            }
-            NSLog(@"[auth] clicked image edition (%@)", result);
+    if (_step == LNAuthStepAwaitImageEdition) {
+        // Prefer the collection page: read the image-edition URL straight from
+        // it and navigate there directly (no reliance on clicking).
+        result = [self runScript:LNImageEditionURLScript] ?: @"";
+        if ([result hasPrefix:@"URL:"]) {
+            target = [result substringFromIndex:4];
+            NSLog(@"[auth] image edition URL: %@", target);
             [self setStep:LNAuthStepAwaitIssueClick];
-            _issuePickAttempted = NO;
-            return;
-
-        case LNAuthStepAwaitIssueClick: {
-            // The image-edition viewer page is the issue-browse URL with
-            // format=image; arriving there means we are done automating.
-            NSString *url = _webView.request.mainDocumentURL.absoluteString.lowercaseString;
-            if ([url containsString:@"issue-browse"] &&
-                [url containsString:@"format=image"]) {
-                NSLog(@"[auth] image viewer reached; automation complete");
-                [self setStep:LNAuthStepDone];
-                [_timeoutTimer invalidate];
-                [_pollTimer invalidate];
+        } else {
+            // Not on the collection page yet: on the NewsBank landing page the
+            // way in is the "Seattle Times Collection" link.
+            NSString *click = [self runScript:LNClickLinkScript(@"seattle times")] ?: @"";
+            if ([click hasPrefix:@"CLICKED"]) {
+                NSLog(@"[auth] clicked Seattle Times Collection: %@", click);
+                _navigationPending = YES;
+                _attempts = 0;
+                return;  // wait for the collection page
+            }
+            // Blank or unrecognised page: after a few tries, fall back to the
+            // known image-edition URL.
+            _attempts++;
+            if (_attempts >= 3) {
+                NSLog(@"[auth] falling back to direct image-edition URL");
+                target = LNImageEditionURLString;
+                [self setStep:LNAuthStepAwaitIssueClick];
+            } else {
                 return;
             }
-            if (_issuePickAttempted) {
-                return;  // click already sent; wait for the viewer to load
-            }
-            result = [self runScript:LNPickIssueScript] ?: @"";
-            if (![result hasPrefix:@"CLICKED"]) {
+        }
+    } else {  // LNAuthStepAwaitIssueClick
+        result = [self runScript:LNPickIssueURLScript] ?: @"";
+        if ([result hasPrefix:@"URL:"]) {
+            target = [result substringFromIndex:4];
+            NSLog(@"[auth] latest issue URL: %@", target);
+        } else {
+            _attempts++;
+            if (_attempts >= LNNewsBankMaxAttempts) {
                 [self failWithReason:@"Could not find the latest issue link."
                               detail:result];
-                return;
             }
-            NSLog(@"[auth] clicked latest issue (%@)", result);
-            _issuePickAttempted = YES;
             return;
         }
+    }
 
-        case LNAuthStepDone:
-            return;
+    if (target.length > 0) {
+        _navigationPending = YES;
+        _attempts = 0;
+        [self loadAbsoluteURL:target];
     }
 }
 
@@ -641,7 +709,9 @@ static NSString * const LNEmbeddedAuthFrameScript =
     if (_step == LNAuthStepDone) {
         return;
     }
-    NSLog(@"[auth] FAILED (step %ld): %@ | detail: %@", (long)_step, reason, detail ?: @"(none)");
+    NSString *failURL = _webView.request.mainDocumentURL.absoluteString ?: @"(nil)";
+    NSLog(@"[auth] FAILED (step %ld): %@ | url: %@ | detail: %@",
+          (long)_step, reason, failURL, detail ?: @"(none)");
     _step = LNAuthStepDone;
     [_timeoutTimer invalidate];
     [_pollTimer invalidate];

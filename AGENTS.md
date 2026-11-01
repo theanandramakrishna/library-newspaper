@@ -73,15 +73,25 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
   5. Collection page = a **table** (Source | Dates | Location | Type | Format |
      Language). Two rows are both named "Seattle Times, The (WA)":
      Format **Text** = code `STIW` (1985–Current), Format **Image** = code
-     **`STS2S-EEDT`** (2018–Current). The app clicks the browse-pub link in the
-     row whose Format cell is "Image" (fallback: href contains STS2S-EEDT).
-  6. Publication page has a **"View Recent Issues"** list; links point at
-     `issue-browse?...mody:MMDD...&action=browse&format=image`. The app picks
-     the largest `mody` among links whose text is a full date (ignore the bare
-     day-number calendar links), then waits for the viewer page.
+     **`STS2S-EEDT`** (2018–Current). The app reads the image-edition
+     `browse-pub` URL from this page and **navigates to it directly** rather
+     than clicking (fallback if the collection page is unavailable: the
+     hardcoded image-edition URL `LNImageEditionURLString`).
+  6. Publication page (server-rendered) has a **"View Recent Issues"** list;
+     links point at `issue-browse?...mody:MMDD...&action=browse&format=image`.
+     The app picks the largest `mody` among links whose text is a full date
+     (ignoring the bare day-number calendar) and **navigates directly** to it.
   7. Viewer page = `issue-browse ... &format=image`: shows page 1 of the issue
      as an image ("News Article, Seattle Times, The (WA), <date>, p1") with a
      "Next Page" link. Automation stops here; the user reads in the web view.
+
+Both the collection and publication pages are plain **server-rendered HTML**
+(verified: `browse-pub` / `issue-browse` appear in the raw document, built with
+no page-building XHR), so the app reaches NewsBank's pages by **direct
+navigation of known URLs** rather than simulating clicks — UIWebView on iOS 9
+cannot run the site's modern JavaScript. Each NewsBank step is polled every
+1.5 s (late-rendering content still works; a page that never shows the expected
+content fails with a diagnostic dump instead of hanging).
 - Failure policy (user decision): any unrecognized page, load error, or 60 s
   step timeout → alert naming the step (plus URL / link dump for diagnosis),
   then pop back to the logon screen. **No manual fallback, no retries.**
