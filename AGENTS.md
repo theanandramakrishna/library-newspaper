@@ -41,6 +41,9 @@ ideviceinstaller install build/legacy/LibraryNewspaper.ipa
 
 ## Logon flow (KCLS / OpenAthens)
 
+The flow below was verified by walking the real pages in a desktop browser
+(2026-10-31). Do not guess these selectors again — re-scrape if NewsBank changes.
+
 The app opens on a logon screen (username + password + "Logon"). Credentials are
 stored in the **Keychain** (`kSecClassGenericPassword`, service
 `com.anand.librarynewspaper`) and pre-fill the fields on the next launch.
@@ -48,25 +51,45 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
 - Returning users with saved credentials go **straight into the web flow**
   (no Logon tap needed). If the flow fails, it pops back to the logon screen
   and does *not* auto-retry (`autoStartDone` guard prevents a push loop).
-- Logon pushes `AuthWebViewController`, a `UIWebView` running a step machine:
-  1. load the fixed redirector
+- Logon pushes `AuthWebViewController`, a `UIWebView` running a step machine.
+  The real page sequence:
+  1. fixed redirector
      `https://go.openathens.net/redirector/kcls.org?url=<percent-encoded infoweb.newsbank.com/apps/news/?p=NewsBank>`
-  2. any page with a login form (OpenAthens- or library-hosted): silently fill
-     username/password and submit (`LNLoginFillScript`); a second login page
-     after a submission means rejected credentials → fail
-  3. NewsBank landing → click the link matching "seattle times"
-  4. collection page → click the link matching "image"
-  5. edition page → click the newest issue (date-text link preferred; see
-     `LNPickIssueScript`), then stop automating — the user reads in the web view
+  2. `evgcatalog.kcls.org` — KCLS catalog login form; fill username+password,
+     submit (generic probe: password+text input in the same form)
+  3. `login.openathens.net` — OpenAthens sign-in (may be a two-step SPA:
+     username first, password appears in place) and/or a "please wait while we
+     transfer you to NewsBank" interstitial. The app polls every 1.5 s for
+     forms; if a page shows no form for ~6 s it follows the interstitial's own
+     redirect target (meta-refresh or a NewsBank/continue link) — the hand-off
+     JS cannot run on iOS 9's engine.
+  4. **NewsBank is reached through the OpenAthens proxy domain**:
+     `infoweb-newsbank-com.us1.proxy.openathens.net` (also `www-newsbank-com.…`).
+     Host matching uses `containsString:@"newsbank"`, NOT "newsbank.com".
+     Landing page: "America's News | Easy Search" with a
+     **"Seattle Times Collection"** link → `/apps/news/browse-multi?...`.
+  5. Collection page = a **table** (Source | Dates | Location | Type | Format |
+     Language). Two rows are both named "Seattle Times, The (WA)":
+     Format **Text** = code `STIW` (1985–Current), Format **Image** = code
+     **`STS2S-EEDT`** (2018–Current). The app clicks the browse-pub link in the
+     row whose Format cell is "Image" (fallback: href contains STS2S-EEDT).
+  6. Publication page has a **"View Recent Issues"** list; links point at
+     `issue-browse?...mody:MMDD...&action=browse&format=image`. The app picks
+     the largest `mody` among links whose text is a full date (ignore the bare
+     day-number calendar links), then waits for the viewer page.
+  7. Viewer page = `issue-browse ... &format=image`: shows page 1 of the issue
+     as an image ("News Article, Seattle Times, The (WA), <date>, p1") with a
+     "Next Page" link. Automation stops here; the user reads in the web view.
 - Failure policy (user decision): any unrecognized page, load error, or 60 s
   step timeout → alert naming the step (plus URL / link dump for diagnosis),
   then pop back to the logon screen. **No manual fallback, no retries.**
 - The NewsBank reader is viewed **inside the embedded web view only**. Never
   download/scrape issue content to disk.
-- Selector JS is heuristic; when NewsBank/OpenAthens change their layout the
-  flow fails by design — refine the JS constants in `AuthWebViewController.m`.
 - `Info.plist` sets `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` (needed
   on iOS 9); the **Security** framework is linked (keychain).
+- Known environmental risk: NewsBank sits behind **AWS WAF** (awswaf.com JS
+  telemetry). If its challenge JS cannot run on iOS 9 the pages may be blocked
+  — that would surface as a WAF/captcha page in the web view.
 
 ## Getting logs from the iPad
 
