@@ -58,11 +58,13 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
   2. `evgcatalog.kcls.org` — KCLS catalog login form; fill username+password,
      submit (generic probe: password+text input in the same form)
   3. `login.openathens.net` — OpenAthens sign-in (may be a two-step SPA:
-     username first, password appears in place) and/or a "please wait while we
-     transfer you to NewsBank" interstitial. The app polls every 1.5 s for
-     forms; if a page shows no form for ~6 s it follows the interstitial's own
-     redirect target (meta-refresh or a NewsBank/continue link) — the hand-off
-     JS cannot run on iOS 9's engine.
+     username first, password appears in place) and then a hand-off page titled
+     "OpenAthens" ("please wait while we transfer you to NewsBank"). That page
+     is a **SAML2 POST form** (hidden `SAMLResponse` + `RelayState`, no submit
+     button) whose auto-submit JS cannot run on iOS 9 — the app submits it
+     itself (`SUBMITTED:saml` in the probe). The app polls every 1.5 s for
+     forms; if a page shows no form for ~6 s it also follows any meta-refresh /
+     continue link and can open embedded auth iframes directly.
   4. **NewsBank is reached through the OpenAthens proxy domain**:
      `infoweb-newsbank-com.us1.proxy.openathens.net` (also `www-newsbank-com.…`).
      Host matching uses `containsString:@"newsbank"`, NOT "newsbank.com".
