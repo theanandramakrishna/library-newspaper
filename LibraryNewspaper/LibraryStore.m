@@ -525,6 +525,7 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
 + (UIImage *)downsampleURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
     CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
     if (source == NULL) {
+        NSLog(@"[auth] ImageLoader: CGImageSourceCreateWithURL returned NULL for %@", url.path);
         return nil;
     }
 
@@ -539,6 +540,7 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
                                                                (__bridge CFDictionaryRef)options);
     CFRelease(source);
     if (thumbnail == NULL) {
+        NSLog(@"[auth] ImageLoader: CGImageSourceCreateThumbnailAtIndex returned NULL for %@", url.path);
         return nil;
     }
 
