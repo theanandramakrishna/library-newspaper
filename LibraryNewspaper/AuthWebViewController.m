@@ -207,7 +207,28 @@ static NSString * const LNDiagnoseScript =
     "else{lines.push(' iframe['+k+'] same-origin but empty');}}"
     "catch(e){lines.push(' iframe['+k+'] cross-origin');}"
     "}"
-    "return lines.join('\\n');"
+    "return lines.join(' | ');"
+    "})()";
+
+// Finds where an interstitial ("please wait while we transfer you…") page
+// wants to send the browser next: a meta-refresh URL, or a link mentioning
+// NewsBank / continue / click here. Returns an absolute URL or ''.
+static NSString * const LNTransferTargetScript =
+    @"(function(){"
+    "function abs(u){var a=document.createElement('a');a.href=u;return a.href;}"
+    "var m=document.querySelector('meta[http-equiv=refresh]');"
+    "if(m){var c=(m.getAttribute('content')||'');"
+    "var i=c.toLowerCase().indexOf('url=');"
+    "if(i>=0)return abs(c.substring(i+4).replace(/['\"]/g,'').trim());}"
+    "var links=document.querySelectorAll('a[href]');"
+    "for(var i=0;i<links.length;i++){"
+    "var l=(links[i].getAttribute('href')||'');"
+    "var lt=((links[i].textContent||'')+' '+l).toLowerCase();"
+    "if(l.indexOf('newsbank')>=0||lt.indexOf('newsbank')>=0||lt.indexOf('continue')>=0||lt.indexOf('click here')>=0){"
+    "if(l.indexOf('javascript')!==0)return abs(l);"
+    "}"
+    "}"
+    "return '';"
     "})()";
 
 // Returns the src of the first iframe that looks like an embedded auth/login
@@ -239,7 +260,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
 @property (nonatomic, assign) NSInteger totalSubmissions;
 @property (nonatomic, strong) NSString *lastFullSubmitHost;
 @property (nonatomic, copy) NSString *lastProbeResult;
-@property (nonatomic, assign) BOOL navigatedToEmbed;
+@property (nonatomic, assign) BOOL rescueNavigated;
 @property (nonatomic, assign) BOOL started;
 
 @end
@@ -392,8 +413,9 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _userSubmittedThisPage = 0;
     _noFormTicks = 0;
     _lastProbeResult = nil;
-    [self loginProbeTick];
 
+    // Schedule the poll BEFORE the immediate probe: the probe can complete a
+    // login and invalidate the timer, which is only meaningful if it exists.
     if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
         _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
                                                       target:self
@@ -401,6 +423,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
                                                     userInfo:nil
                                                      repeats:YES];
     }
+    [self loginProbeTick];
 }
 
 - (void)loginProbeTick {
@@ -438,6 +461,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
                     _webView.request.mainDocumentURL.host.lowercaseString;
             }
         }
+        [self setStep:LNAuthStepAwaitNewsBank];
 
         _totalSubmissions++;
         if (_totalSubmissions >= LNMaxTotalSubmissions) {
@@ -449,9 +473,11 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 }
 
-// The page keeps reporting no usable form. After a few ticks, dump what is
-// actually on it (logged for diagnosis) and, if the login form lives in a
-// cross-origin iframe we cannot inject into, navigate the main frame there.
+// The page keeps reporting no usable form. After a few ticks, look for the
+// interstitial's own redirect target and follow it (their hand-off JavaScript
+// often cannot run on iOS 9), dump the page structure for diagnosis, and if
+// the login form lives in a cross-origin iframe we cannot inject into,
+// navigate the main frame there.
 - (void)handleQuietTick {
     _noFormTicks++;
     if (_noFormTicks != 4) {
@@ -459,11 +485,23 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 
     NSString *dump = [self runScript:LNDiagnoseScript] ?: @"";
-    NSLog(@"[auth] login page diagnostics:\n%@", dump);
+    NSLog(@"[auth] login page diagnostics: %@", dump);
 
-    if (_navigatedToEmbed) {
+    if (_rescueNavigated) {
         return;
     }
+
+    NSString *target = [self runScript:LNTransferTargetScript] ?: @"";
+    if (target.length > 0) {
+        NSURL *url = [NSURL URLWithString:target];
+        if (url) {
+            NSLog(@"[auth] interstitial redirect target, following: %@", target);
+            _rescueNavigated = YES;
+            [_webView loadRequest:[NSURLRequest requestWithURL:url]];
+            return;
+        }
+    }
+
     NSString *src = [self runScript:LNEmbeddedAuthFrameScript] ?: @"";
     if (src.length == 0) {
         return;
@@ -473,7 +511,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
     if (frameURL && current &&
         ![frameURL.host.lowercaseString isEqualToString:current.host.lowercaseString]) {
         NSLog(@"[auth] login form seems to be an embedded frame; opening it directly");
-        _navigatedToEmbed = YES;
+        _rescueNavigated = YES;
         [_webView loadRequest:[NSURLRequest requestWithURL:frameURL]];
     }
 }
