@@ -527,8 +527,12 @@ static NSString * const LNEmbeddedAuthFrameScript =
         if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
             [self setStep:LNAuthStepAwaitImageEdition];
         }
+        // If we're downloading a specific date's paper, don't stop at the
+        // viewer page — let newsbankTick start the download. Otherwise (browse
+        // mode) stop automation here.
         if (_step == LNAuthStepAwaitIssueClick &&
-            [self isImageViewerURL:currentURL]) {
+            [self isImageViewerURL:currentURL] &&
+            _targetDate == nil) {
             NSLog(@"[auth] image viewer reached; automation complete");
             [self setStep:LNAuthStepDone];
             [_timeoutTimer invalidate];
