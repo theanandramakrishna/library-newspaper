@@ -327,6 +327,38 @@ static NSString * const LNDiagnoseScript =
     "return lines.join(' | ');"
     "})()";
 
+// Dumps the media elements (img, object, embed, iframe) and background-image
+// styles on the document-view viewer page, so we can see how the page image
+// is embedded when the standard  selector finds nothing.
+static NSString * const LNViewDiagnoseScript =
+    @"(function(){"
+    "var lines=[];"
+    "var imgs=document.querySelectorAll('img');"
+    "lines.push('imgs='+imgs.length);"
+    "for(var i=0;i<imgs.length&&i<8;i++){"
+    "var im=imgs[i];"
+    "lines.push(' img['+i+'] src='+(im.src||'').substring(0,100));"
+    "lines.push('  w='+im.width+' h='+im.height+' data-src='+(im.getAttribute('data-src')||''));"
+    "lines.push('  style='+(im.getAttribute('style')||'').substring(0,60));"
+    "}"
+    "var obs=document.querySelectorAll('object,embed');"
+    "lines.push('object/embed='+obs.length);"
+    "for(var i=0;i<obs.length&&i<5;i++){"
+    "lines.push(' obj['+i+'] tag='+obs[i].tagName+' data='+(obs[i].data||'')+' src='+(obs[i].src||'')+' type='+(obs[i].type||''));"
+    "}"
+    "var ifrs=document.querySelectorAll('iframe');"
+    "lines.push('iframes='+ifrs.length);"
+    "for(var k=0;k<ifrs.length&&k<5;k++){"
+    "lines.push(' iframe['+k+'] src='+(ifrs[k].getAttribute('src')||'').substring(0,100));"
+    "}"
+    "var divs=document.querySelectorAll('div[style*=\"background\"]');"
+    "lines.push('divs-bg='+divs.length);"
+    "for(var j=0;j<divs.length&&j<5;j++){"
+    "lines.push(' div['+j+'] style='+(divs[j].getAttribute('style')||'').substring(0,80));"
+    "}"
+    "return lines.join(' | ');"
+    "})()";
+
 // Finds where an interstitial ("please wait while we transfer you…") page
 // wants to send the browser next: a meta-refresh URL, or a link mentioning
 // NewsBank / continue / click here. Returns an absolute URL or ''.
@@ -869,6 +901,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _nextDownloadPage = 1;
     _downloadRetries = 0;
     _firstPageDelivered = NO;
+    _isLastPage = NO;
 
     NSLog(@"[auth] download starting for issue %@", _issueIDString);
 
@@ -891,9 +924,27 @@ static NSString * const LNEmbeddedAuthFrameScript =
     NSString *imageURL = info[@"image"] ?: @"";
     NSString *nextPage = info[@"nextPage"] ?: @"";
 
+    // If the extracted "image" is actually the document-view page URL itself
+    // (the script's fallback matched a self-referential img), it's not a real
+    // page image. Run the page-structure diagnostic and retry.
+    if (imageURL.length > 0 && [imageURL rangeOfString:@"document-view"].location != NSNotFound) {
+        NSString *diag = [self runScript:LNViewDiagnoseScript] ?: @"";
+        NSLog(@"[auth] view diagnose: %@", diag);
+        _downloadRetries++;
+        if (_downloadRetries < 4) {
+            NSLog(@"[auth] download: image is document-view URL (retry %ld)", (long)_downloadRetries);
+            [self startDownloadRetryTimer];
+            return;
+        }
+        // Retries exhausted: give up on this page.
+        [self finishDownload];
+        return;
+    }
+
     if (imageURL.length > 0 && nextPage.length > 0) {
         // Found both page image and next-page link: download image, advance.
         _downloadRetries = 0;
+        _isLastPage = NO;
         [self downloadImageAtURLString:imageURL];
         NSURL *url = [NSURL URLWithString:nextPage];
         if (url) {
@@ -901,16 +952,17 @@ static NSString * const LNEmbeddedAuthFrameScript =
             [_webView loadRequest:[NSURLRequest requestWithURL:url]];
             return;
         }
-        // No next page link but we have the image: last page.
-        [self finishDownload];
+        // No next page link despite having one: treat as last page.
+        _isLastPage = YES;
+        [self downloadImageAtURLString:imageURL];
         return;
     }
 
     if (imageURL.length > 0) {
         // Found image but no next-page link: last page.
         _downloadRetries = 0;
+        _isLastPage = YES;
         [self downloadImageAtURLString:imageURL];
-        [self finishDownload];
         return;
     }
 
@@ -935,10 +987,12 @@ static NSString * const LNEmbeddedAuthFrameScript =
         return;
     }
 
-    // Nothing found at all: retry.
+    // Nothing found at all: dump page structure for diagnosis, then retry.
     _downloadRetries++;
     if (_downloadRetries < 4) {
         NSLog(@"[auth] download: nothing usable yet (retry %ld)", (long)_downloadRetries);
+        NSString *diag = [self runScript:LNViewDiagnoseScript] ?: @"";
+        NSLog(@"[auth] view diagnose: %@", diag);
         [self startDownloadRetryTimer];
         return;
     }
@@ -1014,6 +1068,12 @@ static NSString * const LNEmbeddedAuthFrameScript =
                     if (_onComplete) {
                         _onComplete([self buildIssueWithPageCount:1], nil);
                     }
+                }
+
+                // If this was the last page, save metadata and finish.
+                if (_isLastPage) {
+                    _isLastPage = NO;
+                    [self finishDownload];
                 }
             });
         } else {
