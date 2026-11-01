@@ -177,6 +177,52 @@ static NSString * const LNPickIssueScript =
     "return 'CLICKED';"
     "})()";
 
+// Dumps the structure of a page that keeps reporting NOFORM: title, inputs,
+// buttons, and iframes (including whether each iframe is reachable).
+static NSString * const LNDiagnoseScript =
+    @"(function(){"
+    "function describe(root){"
+    "var out=[];"
+    "var inputs=root.querySelectorAll('input');"
+    "out.push('inputs='+inputs.length);"
+    "for(var i=0;i<inputs.length&&i<8;i++){"
+    "out.push(' input['+i+'] type='+(inputs[i].getAttribute('type')||'?')+' name='+(inputs[i].name||'')+' id='+(inputs[i].id||''));"
+    "}"
+    "var bs=root.querySelectorAll('button');"
+    "out.push('buttons='+bs.length);"
+    "for(var j=0;j<bs.length&&j<5;j++){"
+    "out.push(' button['+j+'] '+(bs[j].textContent||'').replace(/\\s+/g,' ').substring(0,40));"
+    "}"
+    "return out;"
+    "}"
+    "var lines=[];"
+    "lines.push('TITLE='+(document.title||'').substring(0,80));"
+    "lines=lines.concat(describe(document));"
+    "var fs=document.querySelectorAll('iframe');"
+    "lines.push('iframes='+fs.length);"
+    "for(var k=0;k<fs.length&&k<5;k++){"
+    "lines.push(' iframe['+k+'] src='+(fs[k].getAttribute('src')||'').substring(0,100));"
+    "try{var d=fs[k].contentDocument;"
+    "if(d&&d.body){lines=lines.concat(describe(d).map(function(s){return ' IFRAME '+s;}));}"
+    "else{lines.push(' iframe['+k+'] same-origin but empty');}}"
+    "catch(e){lines.push(' iframe['+k+'] cross-origin');}"
+    "}"
+    "return lines.join('\\n');"
+    "})()";
+
+// Returns the src of the first iframe that looks like an embedded auth/login
+// widget, or an empty string.
+static NSString * const LNEmbeddedAuthFrameScript =
+    @"(function(){"
+    "var fs=document.querySelectorAll('iframe');"
+    "for(var i=0;i<fs.length;i++){"
+    "var s=(fs[i].getAttribute('src')||'');"
+    "var l=s.toLowerCase();"
+    "if(l.indexOf('http')===0&&(l.indexOf('auth')>=0||l.indexOf('login')>=0||l.indexOf('athens')>=0))return s;"
+    "}"
+    "return '';"
+    "})()";
+
 #pragma mark - Auth web view controller
 
 @interface AuthWebViewController () <UIWebViewDelegate>
@@ -188,9 +234,12 @@ static NSString * const LNPickIssueScript =
 @property (nonatomic, strong) NSTimer *timeoutTimer;
 @property (nonatomic, strong) NSTimer *pollTimer;
 @property (nonatomic, assign) NSInteger submissionsThisPage;
+@property (nonatomic, assign) NSInteger userSubmittedThisPage;
+@property (nonatomic, assign) NSInteger noFormTicks;
 @property (nonatomic, assign) NSInteger totalSubmissions;
 @property (nonatomic, strong) NSString *lastFullSubmitHost;
 @property (nonatomic, copy) NSString *lastProbeResult;
+@property (nonatomic, assign) BOOL navigatedToEmbed;
 @property (nonatomic, assign) BOOL started;
 
 @end
@@ -340,6 +389,8 @@ static NSString * const LNPickIssueScript =
     }
 
     _submissionsThisPage = 0;
+    _userSubmittedThisPage = 0;
+    _noFormTicks = 0;
     _lastProbeResult = nil;
     [self loginProbeTick];
 
@@ -357,32 +408,73 @@ static NSString * const LNPickIssueScript =
         [_pollTimer invalidate];
         return;
     }
-    if (_submissionsThisPage >= 2) {
-        return;  // already submitted on this page instance; wait for navigation
+    if (_submissionsThisPage >= 2 || _userSubmittedThisPage >= 1) {
+        return;  // done what this page allows; wait for navigation
     }
 
     NSString *result = [self runScript:LNCredentialProbeScript(_username, _password)] ?: @"";
     BOOL submitted = [result hasPrefix:@"SUBMITTED"];
     if (!submitted && [result isEqualToString:_lastProbeResult]) {
-        return;  // page state unchanged; stay quiet
+        [self handleQuietTick];
+        return;  // page state unchanged
     }
     NSLog(@"[auth] form probe: %@", result);
     _lastProbeResult = result;
 
     if (submitted) {
         _submissionsThisPage++;
-        _totalSubmissions++;
 
         NSArray *parts = [result componentsSeparatedByString:@":"];
         NSString *kind = parts.count > 2 ? parts[1] : @"";
-        if ([kind isEqualToString:@"both"]) {
-            NSString *currentHost = _webView.request.mainDocumentURL.host.lowercaseString;
-            _lastFullSubmitHost = currentHost;
+        if ([kind isEqualToString:@"user"]) {
+            // Two-step login: the password step should appear on this same
+            // page shortly, so keep polling.
+            _userSubmittedThisPage = 1;
+        } else {
+            // A full credential set was sent; stop until the next page.
+            [_pollTimer invalidate];
+            if ([kind isEqualToString:@"both"]) {
+                _lastFullSubmitHost =
+                    _webView.request.mainDocumentURL.host.lowercaseString;
+            }
         }
+
+        _totalSubmissions++;
         if (_totalSubmissions >= LNMaxTotalSubmissions) {
             [self failWithReason:@"Too many sign-in attempts; giving up."
                           detail:nil];
         }
+    } else {
+        _noFormTicks = 0;
+    }
+}
+
+// The page keeps reporting no usable form. After a few ticks, dump what is
+// actually on it (logged for diagnosis) and, if the login form lives in a
+// cross-origin iframe we cannot inject into, navigate the main frame there.
+- (void)handleQuietTick {
+    _noFormTicks++;
+    if (_noFormTicks != 4) {
+        return;
+    }
+
+    NSString *dump = [self runScript:LNDiagnoseScript] ?: @"";
+    NSLog(@"[auth] login page diagnostics:\n%@", dump);
+
+    if (_navigatedToEmbed) {
+        return;
+    }
+    NSString *src = [self runScript:LNEmbeddedAuthFrameScript] ?: @"";
+    if (src.length == 0) {
+        return;
+    }
+    NSURL *frameURL = [NSURL URLWithString:src];
+    NSURL *current = _webView.request.mainDocumentURL;
+    if (frameURL && current &&
+        ![frameURL.host.lowercaseString isEqualToString:current.host.lowercaseString]) {
+        NSLog(@"[auth] login form seems to be an embedded frame; opening it directly");
+        _navigatedToEmbed = YES;
+        [_webView loadRequest:[NSURLRequest requestWithURL:frameURL]];
     }
 }
 
