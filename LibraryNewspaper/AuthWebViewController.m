@@ -472,11 +472,12 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 }
 
-// The image-edition viewer is the issue-browse URL with format=image.
+// The image-edition viewer is the issue-browse or document-view URL with
+// format=image (the site renders issue-browse as document-view).
 - (BOOL)isImageViewerURL:(NSString *)urlString {
     NSString *lower = urlString.lowercaseString;
-    return [lower containsString:@"issue-browse"] &&
-           [lower containsString:@"format=image"];
+    return [lower containsString:@"format=image"] &&
+           ([lower containsString:@"document-view"] || [lower containsString:@"issue-browse"]);
 }
 
 - (void)loadAbsoluteURL:(NSString *)urlString {
