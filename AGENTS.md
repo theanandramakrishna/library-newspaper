@@ -86,6 +86,14 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
   (`application-identifier` + `keychain-access-groups` = bundle id). If a
   rebuild loses keychain access, check that the entitlements file is still
   passed to `codesign`.
+- **Full-screen on the iPad**: the hand-rolled `Info.plist` must carry
+  `UIDeviceFamily` = `[1, 2]`. Xcode injects that key during normal builds, but
+  `build_legacy.sh` copies the plist verbatim — without it iOS runs the app in
+  scaled iPhone compatibility mode (small letterboxed window). If the app looks
+  like a phone app on the iPad, check this key first.
+- **No device screenshots**: `idevicescreenshot` needs the developer disk image
+  mounted, which this Xcode cannot do for iOS 9. Verify UI issues via
+  `idevicesyslog` and by eye.
 
 ## Toolchain constraint (important)
 
