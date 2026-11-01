@@ -147,34 +147,72 @@ static NSString *LNClickLinkScript(NSString *term) {
         LNJavaScriptString([term lowercaseString])];
 }
 
-// Picks the most recent issue from the edition browse page. Preference order:
-// links whose text looks like a date, then links mentioning issue/edition,
-// then any link into /apps/news/. Returns CLICKED or NOTFOUND plus a dump.
+// Clicks the "Image" format edition in the Seattle Times Collection table.
+// The collection page is a table (Source | Dates | Location | Type | Format |
+// Language) with two rows both named "Seattle Times, The (WA)" — only the row
+// whose Format cell says "Image" is the image edition (code STS2S-EEDT; the
+// other, STIW, is the text edition). Falls back to the known code, then dumps
+// the page's links for diagnosis.
+static NSString * const LNClickImageEditionScript =
+    @"(function(){"
+    "var rows=document.querySelectorAll('tr');"
+    "for(var i=0;i<rows.length;i++){"
+    "var a=rows[i].querySelector('a[href*=\"browse-pub\"]');"
+    "if(!a)continue;"
+    "var cells=rows[i].querySelectorAll('td');"
+    "for(var j=0;j<cells.length;j++){"
+    "var c=(cells[j].textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();"
+    "if(c==='image'){"
+    "if(a.target==='_blank')a.target='';"
+    "a.click();"
+    "return 'CLICKED:image-row';"
+    "}"
+    "}"
+    "}"
+    "var links=document.querySelectorAll('a[href*=browse-pub]');"
+    "for(var k=0;k<links.length;k++){"
+    "var h=links[k].getAttribute('href')||'';"
+    "if(h.indexOf('STS2S-EEDT')>=0){"
+    "if(links[k].target==='_blank')links[k].target='';"
+    "links[k].click();"
+    "return 'CLICKED:code';"
+    "}"
+    "}"
+    "var dump=[];"
+    "var all=document.querySelectorAll('a[href]');"
+    "for(var m=0;m<all.length&&m<25;m++){"
+    "dump.push(((all[m].textContent||'').replace(/\\s+/g,' ').substring(0,40))+' => '+((all[m].getAttribute('href')||'').substring(0,80)));"
+    "}"
+    "return 'NOTFOUND\\n'+dump.join('\\n');"
+    "})()";
+
+// Picks the most recent issue from the publication page's "View Recent
+// Issues" list. Those links point at issue-browse with a mody:MMDD parameter
+// and format=image; only links whose text is a full date count (the page also
+// has a bare day-number calendar for the same month). Picks the largest
+// mody value.
 static NSString * const LNPickIssueScript =
     @"(function(){"
-    "var links=document.querySelectorAll('a[href]');"
-    "var here=location.href;"
-    "var dateRe=/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? \\d{1,2},? \\d{4}|\\d{1,2}\\/\\d{1,2}\\/\\d{2,4}|\\d{4}-\\d{2}-\\d{2}/i;"
+    "var links=document.querySelectorAll('a[href*=issue-browse]');"
+    "var best=null;"
+    "var bestMody=-1;"
+    "var dateRe=/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? \\d{1,2},? \\d{4}/i;"
     "var dump=[];"
-    "var cands=[];"
     "for(var i=0;i<links.length;i++){"
     "var a=links[i];"
-    "var href=a.getAttribute('href')||'';"
-    "if(!href||href.charAt(0)==='#'||href.indexOf('javascript:')===0)continue;"
+    "var href=decodeURIComponent(a.getAttribute('href')||'');"
     "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
-    "dump.push(txt.substring(0,50)+' => '+href.substring(0,90));"
-    "var s=-1;"
-    "if(dateRe.test(txt))s=3;"
-    "else if(href.indexOf('issue')>=0||href.indexOf('edition')>=0)s=2;"
-    "else if(href.indexOf('/apps/news/')>=0&&href!==here)s=1;"
-    "if(s>0)cands.push({a:a,s:s,i:i});"
+    "var m=href.match(/mody:(\\d{4})/);"
+    "if(!m)continue;"
+    "dump.push(txt.substring(0,40)+' => '+href.substring(0,90));"
+    "if(!dateRe.test(txt))continue;"
+    "var mody=parseInt(m[1],10);"
+    "if(mody>bestMody){bestMody=mody;best=a;}"
     "}"
-    "if(cands.length===0)return 'NOTFOUND\\n'+dump.slice(0,25).join('\\n');"
-    "cands.sort(function(x,y){return (y.s-x.s)||(x.i-y.i);});"
-    "var p=cands[0].a;"
-    "if(p.target==='_blank')p.target='';"
-    "p.click();"
-    "return 'CLICKED';"
+    "if(!best)return 'NOTFOUND\\n'+dump.slice(0,25).join('\\n');"
+    "if(best.target==='_blank')best.target='';"
+    "best.click();"
+    "return 'CLICKED:mody'+bestMody;"
     "})()";
 
 // Dumps the structure of a page that keeps reporting NOFORM: title, inputs,
@@ -261,6 +299,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
 @property (nonatomic, strong) NSString *lastFullSubmitHost;
 @property (nonatomic, copy) NSString *lastProbeResult;
 @property (nonatomic, assign) BOOL rescueNavigated;
+@property (nonatomic, assign) BOOL issuePickAttempted;
 @property (nonatomic, assign) BOOL started;
 
 @end
@@ -377,7 +416,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
     NSString *host = _webView.request.mainDocumentURL.host.lowercaseString;
     NSLog(@"[auth] page loaded (step %ld): %@", (long)_step, host ?: @"(nil)");
 
-    BOOL isNewsBank = [host containsString:@"newsbank.com"];
+    // Authenticated NewsBank pages are served through the OpenAthens proxy
+    // domain (infoweb-newsbank-com.us1.proxy.openathens.net), so match on
+    // "newsbank" rather than "newsbank.com".
+    BOOL isNewsBank = [host containsString:@"newsbank"];
 
     if (isNewsBank) {
         [self handleNewsBankPage];
@@ -540,28 +582,42 @@ static NSString * const LNEmbeddedAuthFrameScript =
             return;
 
         case LNAuthStepAwaitImageFormatClick:
-            result = [self runScript:LNClickLinkScript(@"image")] ?: @"";
+            result = [self runScript:LNClickImageEditionScript] ?: @"";
             if (![result hasPrefix:@"CLICKED"]) {
-                [self failWithReason:@"Could not find the image format link."
+                [self failWithReason:@"Could not find the Seattle Times image edition."
                               detail:result];
                 return;
             }
-            NSLog(@"[auth] clicked image format");
+            NSLog(@"[auth] clicked image edition (%@)", result);
             [self setStep:LNAuthStepAwaitIssueClick];
+            _issuePickAttempted = NO;
             return;
 
-        case LNAuthStepAwaitIssueClick:
+        case LNAuthStepAwaitIssueClick: {
+            // The image-edition viewer page is the issue-browse URL with
+            // format=image; arriving there means we are done automating.
+            NSString *url = _webView.request.mainDocumentURL.absoluteString.lowercaseString;
+            if ([url containsString:@"issue-browse"] &&
+                [url containsString:@"format=image"]) {
+                NSLog(@"[auth] image viewer reached; automation complete");
+                [self setStep:LNAuthStepDone];
+                [_timeoutTimer invalidate];
+                [_pollTimer invalidate];
+                return;
+            }
+            if (_issuePickAttempted) {
+                return;  // click already sent; wait for the viewer to load
+            }
             result = [self runScript:LNPickIssueScript] ?: @"";
             if (![result hasPrefix:@"CLICKED"]) {
                 [self failWithReason:@"Could not find the latest issue link."
                               detail:result];
                 return;
             }
-            NSLog(@"[auth] clicked latest issue; automation complete");
-            [self setStep:LNAuthStepDone];
-            [_timeoutTimer invalidate];
-            [_pollTimer invalidate];
+            NSLog(@"[auth] clicked latest issue (%@)", result);
+            _issuePickAttempted = YES;
             return;
+        }
 
         case LNAuthStepDone:
             return;
