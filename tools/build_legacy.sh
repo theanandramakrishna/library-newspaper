@@ -40,7 +40,7 @@ fi
 TARGET="armv7-apple-ios9.3"
 MIN_OS="9.3"
 CLANG=(xcrun --sdk iphoneos clang)
-FRAMEWORKS=(-framework UIKit -framework Foundation -framework CoreGraphics -framework ImageIO)
+FRAMEWORKS=(-framework UIKit -framework Foundation -framework CoreGraphics -framework ImageIO -framework Security)
 
 BUILD="build/legacy"
 APP="$BUILD/Payload/LibraryNewspaper.app"

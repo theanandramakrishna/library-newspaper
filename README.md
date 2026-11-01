@@ -1,11 +1,17 @@
 # News Reader
 
-An offline replica-newspaper reader for the **iPad 3 (iOS 9.3.5, armv7)**. It shows
-scanned newspaper pages with tappable article regions, a reflowed text reader, and
-full-text search over per-page text.
+A **Seattle Times (NewsBank via KCLS)** reader for the **iPad 3 (iOS 9.3.5, armv7)**.
+The app opens on a logon screen; pressing **Logon** signs in through KCLS's
+OpenAthens redirector inside an embedded browser and opens the most recent issue
+of the Seattle Times Collection (image format) for reading.
 
-You supply the page images and article/OCR data; the app never fetches anything from
-the network.
+- Credentials are saved in the Keychain and pre-filled; returning users go
+  straight into the sign-in flow.
+- The reader is NewsBank's own image reader, shown in the embedded web view.
+- If any step of the sign-in/click-through fails, the app shows an error and
+  returns to the logon screen.
+- An earlier offline mode (local files in `Documents/NewsFiles`) is still in the
+  codebase but currently unreachable.
 
 ## Building and installing
 
@@ -30,15 +36,12 @@ xcodebuild -project LibraryNewspaper.xcodeproj -target LibraryNewspaper \
 
 ## Features
 
-- **Library**: every folder in `Documents/NewsFiles` becomes an issue, newest first,
-  with a first-page thumbnail.
-- **Replica reader**: pinch/double-tap zoom, page slider, swipe or arrow paging,
-  tappable article rectangles, tap the page to hide/show the chrome.
-- **Articles**: article list popover, full-text reader with headline and page marker.
-- **Search**: case-insensitive search across every issue's page text, with snippets
-  and highlighted headlines.
-- **Image handling**: pages are downsampled through ImageIO and cached, so large
-  scans do not exhaust memory.
+- **Logon**: username/password with a Logon button; Keychain-backed, pre-filled
+  on launch; silent fill-and-submit on the OpenAthens login page.
+- **Auto-navigation**: redirector → Seattle Times Collection → image format →
+  newest issue, then the embedded web view hands control to the user.
+- **Offline reader (unreachable)**: local `Documents/NewsFiles` issues with a
+  replica page viewer, tappable articles, reflowed text, and full-text search.
 
 ## Content format
 

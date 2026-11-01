@@ -39,6 +39,35 @@ ideviceinstaller install build/legacy/LibraryNewspaper.ipa
 - `tools/build_legacy.sh` falls back to a plain `PATH` lookup, and honours
   `INSTALLER=/path/to/ideviceinstaller` if you ever need to override it.
 
+## Logon flow (KCLS / OpenAthens)
+
+The app opens on a logon screen (username + password + "Logon"). Credentials are
+stored in the **Keychain** (`kSecClassGenericPassword`, service
+`com.anand.librarynewspaper`) and pre-fill the fields on the next launch.
+
+- Returning users with saved credentials go **straight into the web flow**
+  (no Logon tap needed). If the flow fails, it pops back to the logon screen
+  and does *not* auto-retry (`autoStartDone` guard prevents a push loop).
+- Logon pushes `AuthWebViewController`, a `UIWebView` running a step machine:
+  1. load the fixed redirector
+     `https://go.openathens.net/redirector/kcls.org?url=<percent-encoded infoweb.newsbank.com/apps/news/?p=NewsBank>`
+  2. any page with a login form (OpenAthens- or library-hosted): silently fill
+     username/password and submit (`LNLoginFillScript`); a second login page
+     after a submission means rejected credentials → fail
+  3. NewsBank landing → click the link matching "seattle times"
+  4. collection page → click the link matching "image"
+  5. edition page → click the newest issue (date-text link preferred; see
+     `LNPickIssueScript`), then stop automating — the user reads in the web view
+- Failure policy (user decision): any unrecognized page, load error, or 60 s
+  step timeout → alert naming the step (plus URL / link dump for diagnosis),
+  then pop back to the logon screen. **No manual fallback, no retries.**
+- The NewsBank reader is viewed **inside the embedded web view only**. Never
+  download/scrape issue content to disk.
+- Selector JS is heuristic; when NewsBank/OpenAthens change their layout the
+  flow fails by design — refine the JS constants in `AuthWebViewController.m`.
+- `Info.plist` sets `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` (needed
+  on iOS 9); the **Security** framework is linked (keychain).
+
 ## Toolchain constraint (important)
 
 The installed Xcode is **26.3 / iOS 26.2 SDK**, which **cannot** produce a binary for this iPad:
@@ -109,15 +138,17 @@ LibraryNewspaper.xcodeproj/        Xcode project (programmatic UIKit, no main st
 LibraryNewspaper/
   main.m                           UIApplicationMain
   AppDelegate.h/.m                 Window + navigation controller, dark navigation bar
-  Models.h/.m                      LNIssue / LNPage / LNArticle / LNSearchHit, JSON parsing
-  LibraryStore.h/.m                Scans Documents/NewsFiles, articles, OCR, search, image cache
-  LibraryViewController.h/.m       Issue list + empty state
-  IssueViewController.h/.m         Paged replica reader, toolbar, article list
-  ZoomablePageView.h/.m            Pinch/double-tap zoom, tappable article rectangles
-  ArticleViewController.h/.m       Full-text reader
-  ArticleListViewController.h/.m   Article picker popover
-  SearchViewController.h/.m        Full-text search
-  Info.plist                       UIFileSharingEnabled, iOS 9 orientations
+  LoginViewController.h/.m         Logon screen, Keychain credential storage
+  AuthWebViewController.h/.m       UIWebView flow: OpenAthens login -> Seattle Times issue
+  Models.h/.m                      LNIssue / LNPage / LNArticle / LNSearchHit, JSON parsing (offline reader)
+  LibraryStore.h/.m                Scans Documents/NewsFiles, articles, OCR, search, image cache (offline reader)
+  LibraryViewController.h/.m       Issue list + empty state (offline reader, currently unreachable)
+  IssueViewController.h/.m         Paged replica reader, toolbar, article list (offline reader)
+  ZoomablePageView.h/.m            Pinch/double-tap zoom, tappable article rectangles (offline reader)
+  ArticleViewController.h/.m       Full-text reader (offline reader)
+  ArticleListViewController.h/.m   Article picker popover (offline reader)
+  SearchViewController.h/.m        Full-text search (offline reader)
+  Info.plist                       UIFileSharingEnabled, NSAllowsArbitraryLoads, iOS 9 orientations
   LaunchScreen.storyboard
 Sample/NewsFiles/                  Two generated sample issues
 tools/build_legacy.sh              armv7 build, bundle, sign, IPA, install
@@ -141,10 +172,15 @@ let the viewer scale rectangles onto the downsampled image.
 
 ## Rules
 
-- The user fetches replica files themselves. Do **not** add network fetching,
-  NewsBank/OpenAthens integration, authentication or scraping code.
+- The only network destination is the KCLS OpenAthens redirector and the
+  NewsBank pages it leads to. No other endpoints, no analytics, no third-party
+  SDKs, nothing on-device beyond the Keychain credential entry.
+- Credentials live only in the iOS Keychain. Never log them, send them
+  anywhere else, or store them in `NSUserDefaults`.
+- No scraping/downloading of issue content: the NewsBank reader runs in the
+  embedded web view. The old offline `Documents/NewsFiles` reader
+  (`LibraryViewController` and friends) stays compiled but unreachable.
 - Keep the app source-compatible with iOS 9.3 and avoid APIs newer than iOS 9.
-- Keep everything on-device; no analytics, no third-party SDKs.
 - Signing is ad-hoc; the iPad needs AppSync Unified (or an equivalent jailbreak patch)
   to install unsigned/ad-hoc apps. If installation is rejected, check AppSync first.
 

@@ -18,6 +18,8 @@
 		B10000000000000000000039 /* ArticleListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000041 /* ArticleListViewController.m */; };
 		B1000000000000000000003A /* SearchViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000043 /* SearchViewController.m */; };
 		B1000000000000000000003B /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000045 /* LaunchScreen.storyboard */; };
+		B1000000000000000000003C /* LoginViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000047 /* LoginViewController.m */; };
+		B1000000000000000000003D /* AuthWebViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000049 /* AuthWebViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +43,10 @@
 		B10000000000000000000041 /* ArticleListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ArticleListViewController.m; sourceTree = "<group>"; };
 		B10000000000000000000042 /* SearchViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SearchViewController.h; sourceTree = "<group>"; };
 		B10000000000000000000043 /* SearchViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SearchViewController.m; sourceTree = "<group>"; };
+		B10000000000000000000046 /* LoginViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LoginViewController.h; sourceTree = "<group>"; };
+		B10000000000000000000047 /* LoginViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LoginViewController.m; sourceTree = "<group>"; };
+		B10000000000000000000048 /* AuthWebViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AuthWebViewController.h; sourceTree = "<group>"; };
+		B10000000000000000000049 /* AuthWebViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AuthWebViewController.m; sourceTree = "<group>"; };
 		B10000000000000000000044 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000045 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -94,6 +100,10 @@
 				B10000000000000000000041 /* ArticleListViewController.m */,
 				B10000000000000000000042 /* SearchViewController.h */,
 				B10000000000000000000043 /* SearchViewController.m */,
+				B10000000000000000000046 /* LoginViewController.h */,
+				B10000000000000000000047 /* LoginViewController.m */,
+				B10000000000000000000048 /* AuthWebViewController.h */,
+				B10000000000000000000049 /* AuthWebViewController.m */,
 				B10000000000000000000045 /* LaunchScreen.storyboard */,
 				B10000000000000000000044 /* Info.plist */,
 			);
@@ -178,6 +188,8 @@
 				B10000000000000000000038 /* ArticleViewController.m in Sources */,
 				B10000000000000000000039 /* ArticleListViewController.m in Sources */,
 				B1000000000000000000003A /* SearchViewController.m in Sources */,
+				B1000000000000000000003C /* LoginViewController.m in Sources */,
+				B1000000000000000000003D /* AuthWebViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -248,6 +260,8 @@
 					CoreGraphics,
 					"-framework",
 					ImageIO,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.anand.librarynewspaper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -274,6 +288,8 @@
 					CoreGraphics,
 					"-framework",
 					ImageIO,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.anand.librarynewspaper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
