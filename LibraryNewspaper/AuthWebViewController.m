@@ -149,6 +149,7 @@ static NSString * const LNPickIssueScript =
 @property (nonatomic, assign) LNAuthStep step;
 @property (nonatomic, assign) NSInteger loginAttempts;
 @property (nonatomic, strong) NSTimer *timeoutTimer;
+@property (nonatomic, assign) BOOL started;
 
 @end
 
@@ -186,6 +187,17 @@ static NSString * const LNPickIssueScript =
     [super viewWillDisappear:animated];
     // Leaving this screen (failure pop or manual back) stops the automation.
     [_timeoutTimer invalidate];
+}
+
+// start is triggered from viewDidAppear so the flow always begins once the
+// controller is on screen, regardless of who pushed it.
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (_started) {
+        return;
+    }
+    _started = YES;
+    [self start];
 }
 
 #pragma mark - Flow
