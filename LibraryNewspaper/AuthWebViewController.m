@@ -267,6 +267,12 @@ static NSString *LNPickIssueURLScriptLatest(void) {
 // On the document-view viewer page, extracts the page-1 image URL and the
 // "Next Page" link so the app can download pages one at a time. Returns a JSON
 // object: {"image":"<url>","nextPage":"<url>"}.
+//
+// NewsBank embeds the page image as an  whose src points at
+// .../maximus/cache/0/thumbnail/color_jpeg_80/<hash> (a small thumbnail). The
+// full-resolution page is at the same path with /thumbnail/ replaced by /full/.
+// The script first looks for a large real image, then falls back to the
+// maximus/cache thumbnail URL (which we upgrade to full-res when downloading).
 static NSString * const LNDownloadPageScript =
     @"(function(){"
     "var result={image:'',nextPage:''};"
@@ -276,6 +282,12 @@ static NSString * const LNDownloadPageScript =
     "var w=imgs[i].width||0;"
     "var h=imgs[i].height||0;"
     "if(w>200&&h>200&&src.indexOf('document-view')<0){result.image=src;break;}"
+    "}"
+    "if(!result.image){"
+    "for(var i=0;i<imgs.length;i++){"
+    "var src=imgs[i].src||'';"
+    "if(src.indexOf('maximus/cache/')>=0){result.image=src;break;}"
+    "}"
     "}"
     "if(!result.image){"
     "for(var i=0;i<imgs.length;i++){"
@@ -1017,7 +1029,16 @@ static NSString * const LNEmbeddedAuthFrameScript =
 }
 
 // Downloads a single page image from the given URL string.
+// NewsBank page images are served as thumbnails (.../thumbnail/color_jpeg_80/);
+// we upgrade to the full-resolution page by replacing /thumbnail/ with /full/.
 - (void)downloadImageAtURLString:(NSString *)urlString {
+    // Upgrade NewsBank thumbnail URL to full-resolution page image.
+    if ([urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
+        urlString = [urlString stringByReplacingOccurrencesOfString:@"/thumbnail/"
+                                                        withString:@"/full/"];
+        NSLog(@"[auth] upgraded to full-res URL: %@", urlString);
+    }
+
     NSURL *url = [NSURL URLWithString:urlString];
     if (url == nil) {
         NSLog(@"[auth] download: invalid image URL: %@", urlString);
