@@ -7,7 +7,7 @@ static NSString * const LNRedirectorURLString =
     @"?url=https%3A%2F%2Finfoweb.newsbank.com%2Fapps%2Fnews%2F%3Fp%3DNewsBank";
 
 static const NSTimeInterval LNStepTimeoutSeconds = 60.0;
-static const NSInteger LNMaxLoginAttempts = 2;
+static const NSInteger LNMaxTotalSubmissions = 5;
 
 // What the flow is waiting for. Each step names the page that must appear
 // next; the timeout applies per step.
@@ -43,39 +43,77 @@ static NSString *LNJavaScriptString(NSString *value) {
     return escaped;
 }
 
-// Finds a form containing a password field, fills in the credentials, and
-// submits it. Returns one of:
-//   NOPASSWORDFIELD / NOFORM / NOUSERFIELD  - page not recognized; keep waiting
-//   SUBMITTED:button / SUBMITTED:form       - credentials sent
-// Uses createEvent (not the Event constructor) so it works on iOS 9's engine.
-static NSString *LNLoginFillScript(NSString *username, NSString *password) {
+// Handles modern login pages, including two-step ones (username first, then a
+// password step that appears in place). Returns one of:
+//   NOFORM                       - nothing actionable on the page
+//   NOSUBMIT                     - fields found but no way to submit
+//   SUBMITTED:both|user|pass:how - credentials sent (which fields, and how)
+// It also looks inside same-origin iframes. Uses createEvent so it works on
+// iOS 9's engine.
+static NSString *LNCredentialProbeScript(NSString *username, NSString *password) {
     return [NSString stringWithFormat:
         @"(function(){"
-        "var pw=document.querySelector('input[type=password]');"
-        "if(!pw)return 'NOPASSWORDFIELD';"
-        "var form=pw.form;"
-        "if(!form)return 'NOFORM';"
-        "var user=null;"
-        "var inputs=form.getElementsByTagName('input');"
-        "for(var i=0;i<inputs.length;i++){"
-        "var el=inputs[i];"
-        "if(el===pw)continue;"
-        "var t=(el.getAttribute('type')||'text').toLowerCase();"
-        "if(t==='text'||t==='email'||t==='tel'||t==='username'||t===''){user=el;break;}"
-        "}"
-        "if(!user)return 'NOUSERFIELD';"
+        "var USER='%@';var PASS='%@';"
         "function setVal(el,v){"
+        "if(el.focus)el.focus();"
         "el.value=v;"
         "var e1=document.createEvent('HTMLEvents');e1.initEvent('input',true,false);el.dispatchEvent(e1);"
         "var e2=document.createEvent('HTMLEvents');e2.initEvent('change',true,false);el.dispatchEvent(e2);"
         "}"
-        "setVal(user,'%@');"
-        "setVal(pw,'%@');"
-        "var btn=form.querySelector('input[type=submit],button[type=submit]');"
-        "if(!btn){var bs=form.getElementsByTagName('button');if(bs.length>0)btn=bs[0];}"
-        "if(btn){btn.click();return 'SUBMITTED:button';}"
-        "if(form.submit){form.submit();return 'SUBMITTED:form';}"
-        "return 'NOSUBMIT';"
+        "function howToSubmit(scope,form){"
+        "var btn=scope.querySelector('input[type=submit],button[type=submit]');"
+        "if(!btn){var bs=scope.querySelectorAll('button');"
+        "for(var i=0;i<bs.length;i++){var bt=(bs[i].textContent||'').toLowerCase();"
+        "if(bt.indexOf('next')>=0||bt.indexOf('sign')>=0||bt.indexOf('log')>=0||bt.indexOf('continue')>=0){btn=bs[i];break;}}}"
+        "if(!btn){var is2=scope.querySelectorAll('input[type=button]');if(is2.length>0)btn=is2[0];}"
+        "if(btn){btn.click();return 'button';}"
+        "if(form&&form.submit){form.submit();return 'form';}"
+        "return '';"
+        "}"
+        "function findIn(root){"
+        "var pw=root.querySelector('input[type=password]');"
+        "if(pw){"
+        "var form=pw.form;"
+        "var scope=form||root;"
+        "var user=null;"
+        "var inputs=scope.querySelectorAll('input');"
+        "for(var i=0;i<inputs.length;i++){"
+        "var el=inputs[i];"
+        "if(el===pw)continue;"
+        "var t=(el.getAttribute('type')||'text').toLowerCase();"
+        "if(t==='hidden'||t==='checkbox'||t==='radio'||t==='submit')continue;"
+        "if(t==='text'||t==='email'||t==='tel'||t==='username'||t===''){user=el;break;}"
+        "}"
+        "var how='';"
+        "if(user){setVal(user,USER);setVal(pw,PASS);how=howToSubmit(scope,form);"
+        "return how?('SUBMITTED:both:'+how):'NOSUBMIT';}"
+        "setVal(pw,PASS);how=howToSubmit(scope,form);"
+        "return how?('SUBMITTED:pass:'+how):'NOSUBMIT';"
+        "}"
+        "var cand=null;"
+        "var inputs=root.querySelectorAll('input[type=text],input[type=email],input[type=tel],input:not([type])');"
+        "for(var j=0;j<inputs.length;j++){"
+        "var el2=inputs[j];"
+        "var t2=(el2.getAttribute('type')||'text').toLowerCase();"
+        "if(t2==='hidden'||t2==='submit')continue;"
+        "var hint=((el2.name||'')+' '+(el2.id||'')+' '+(el2.placeholder||'')+' '+(el2.getAttribute('autocomplete')||'')).toLowerCase();"
+        "if(hint.indexOf('search')>=0||hint.indexOf('query')>=0)continue;"
+        "cand=el2;break;"
+        "}"
+        "if(!cand)return 'NOFORM';"
+        "setVal(cand,USER);"
+        "var how2=howToSubmit(cand.form||root,cand.form||root);"
+        "return how2?('SUBMITTED:user:'+how2):'NOSUBMIT';"
+        "}"
+        "var r=findIn(document);"
+        "if(r==='NOFORM'||r==='NOSUBMIT'){"
+        "var fs=document.querySelectorAll('iframe');"
+        "for(var k=0;k<fs.length;k++){"
+        "try{var d=fs[k].contentDocument;"
+        "if(d){var r2=findIn(d);if(r2!=='NOFORM'&&r2!=='NOSUBMIT')return r2;}}catch(e){}"
+        "}"
+        "}"
+        "return r;"
         "})()",
         LNJavaScriptString(username), LNJavaScriptString(password)];
 }
@@ -147,8 +185,12 @@ static NSString * const LNPickIssueScript =
 @property (nonatomic, copy) NSString *username;
 @property (nonatomic, copy) NSString *password;
 @property (nonatomic, assign) LNAuthStep step;
-@property (nonatomic, assign) NSInteger loginAttempts;
 @property (nonatomic, strong) NSTimer *timeoutTimer;
+@property (nonatomic, strong) NSTimer *pollTimer;
+@property (nonatomic, assign) NSInteger submissionsThisPage;
+@property (nonatomic, assign) NSInteger totalSubmissions;
+@property (nonatomic, strong) NSString *lastFullSubmitHost;
+@property (nonatomic, copy) NSString *lastProbeResult;
 @property (nonatomic, assign) BOOL started;
 
 @end
@@ -180,6 +222,7 @@ static NSString * const LNPickIssueScript =
 
 - (void)dealloc {
     [_timeoutTimer invalidate];
+    [_pollTimer invalidate];
     _webView.delegate = nil;
 }
 
@@ -187,6 +230,7 @@ static NSString * const LNPickIssueScript =
     [super viewWillDisappear:animated];
     // Leaving this screen (failure pop or manual back) stops the automation.
     [_timeoutTimer invalidate];
+    [_pollTimer invalidate];
 }
 
 // start is triggered from viewDidAppear so the flow always begins once the
@@ -271,33 +315,81 @@ static NSString * const LNPickIssueScript =
     }
 
     // Any other host (OpenAthens redirector, OpenAthens login, a library-hosted
-    // login page): if it shows a login form, fill and submit it.
+    // login page): fill and submit whatever login step it shows, polling as
+    // SPA pages render their forms after load.
     if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
-        [self tryLoginForm];
+        [self startLoginHandling];
     }
 }
 
-- (void)tryLoginForm {
-    NSString *result = [self runScript:LNLoginFillScript(_username, _password)] ?: @"";
-    NSLog(@"[auth] login form probe: %@", result);
+// Called once per page load on a non-NewsBank page: probe immediately, then
+// keep polling while the page may still be building its form (SPA two-step
+// login: username first, password appears in place afterwards).
+- (void)startLoginHandling {
+    [_pollTimer invalidate];
 
-    if ([result hasPrefix:@"SUBMITTED"]) {
-        _loginAttempts++;
-        if (_loginAttempts >= LNMaxLoginAttempts) {
-            // The login page came back after a submission: rejected credentials.
-            [self failWithReason:@"The site did not accept the username or password."
-                          detail:nil];
-            return;
-        }
-        [self setStep:LNAuthStepAwaitNewsBank];
+    // If a page we already fully submitted comes back as a fresh load, the
+    // credentials were rejected (e.g. the catalog login reappearing).
+    NSString *host = _webView.request.mainDocumentURL.host.lowercaseString;
+    if (_step == LNAuthStepAwaitNewsBank &&
+        _lastFullSubmitHost != nil &&
+        [host isEqualToString:_lastFullSubmitHost]) {
+        [self failWithReason:@"The site did not accept the username or password."
+                      detail:nil];
+        return;
     }
-    // NOPASSWORDFIELD / NOFORM / NOUSERFIELD: an intermediate page. Keep
-    // waiting; the step timeout reports failure if nothing arrives.
+
+    _submissionsThisPage = 0;
+    _lastProbeResult = nil;
+    [self loginProbeTick];
+
+    if (_step == LNAuthStepAwaitLoginForm || _step == LNAuthStepAwaitNewsBank) {
+        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
+                                                      target:self
+                                                    selector:@selector(loginProbeTick)
+                                                    userInfo:nil
+                                                     repeats:YES];
+    }
+}
+
+- (void)loginProbeTick {
+    if (_step != LNAuthStepAwaitLoginForm && _step != LNAuthStepAwaitNewsBank) {
+        [_pollTimer invalidate];
+        return;
+    }
+    if (_submissionsThisPage >= 2) {
+        return;  // already submitted on this page instance; wait for navigation
+    }
+
+    NSString *result = [self runScript:LNCredentialProbeScript(_username, _password)] ?: @"";
+    BOOL submitted = [result hasPrefix:@"SUBMITTED"];
+    if (!submitted && [result isEqualToString:_lastProbeResult]) {
+        return;  // page state unchanged; stay quiet
+    }
+    NSLog(@"[auth] form probe: %@", result);
+    _lastProbeResult = result;
+
+    if (submitted) {
+        _submissionsThisPage++;
+        _totalSubmissions++;
+
+        NSArray *parts = [result componentsSeparatedByString:@":"];
+        NSString *kind = parts.count > 2 ? parts[1] : @"";
+        if ([kind isEqualToString:@"both"]) {
+            NSString *currentHost = _webView.request.mainDocumentURL.host.lowercaseString;
+            _lastFullSubmitHost = currentHost;
+        }
+        if (_totalSubmissions >= LNMaxTotalSubmissions) {
+            [self failWithReason:@"Too many sign-in attempts; giving up."
+                          detail:nil];
+        }
+    }
 }
 
 - (void)handleNewsBankPage {
     NSString *result = nil;
     NSLog(@"[auth] NewsBank page at step %ld", (long)_step);
+    [_pollTimer invalidate];
 
     switch (_step) {
         case LNAuthStepAwaitLoginForm:
@@ -338,6 +430,7 @@ static NSString * const LNPickIssueScript =
             NSLog(@"[auth] clicked latest issue; automation complete");
             [self setStep:LNAuthStepDone];
             [_timeoutTimer invalidate];
+            [_pollTimer invalidate];
             return;
 
         case LNAuthStepDone:
@@ -354,6 +447,7 @@ static NSString * const LNPickIssueScript =
     NSLog(@"[auth] FAILED (step %ld): %@ | detail: %@", (long)_step, reason, detail ?: @"(none)");
     _step = LNAuthStepDone;
     [_timeoutTimer invalidate];
+    [_pollTimer invalidate];
 
     NSMutableString *message = [NSMutableString stringWithString:reason];
     NSString *url = _webView.request.mainDocumentURL.absoluteString;
