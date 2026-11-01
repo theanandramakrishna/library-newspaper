@@ -199,8 +199,11 @@ static BOOL LNKeychainLoadCredentials(NSString **username, NSString **password) 
     NSString *username = nil;
     NSString *password = nil;
     if (LNKeychainLoadCredentials(&username, &password)) {
+        NSLog(@"[login] keychain load: OK");
         _usernameField.text = username;
         _passwordField.text = password;
+    } else {
+        NSLog(@"[login] keychain load: no saved credentials");
     }
 }
 
@@ -217,7 +220,8 @@ static BOOL LNKeychainLoadCredentials(NSString **username, NSString **password) 
     }
 
     [self clearError];
-    LNKeychainSaveCredentials(username, password);
+    BOOL saved = LNKeychainSaveCredentials(username, password);
+    NSLog(@"[login] keychain save: %@", saved ? @"OK" : @"FAILED");
 
     [self startAuthenticationWithUsername:username password:password];
 }

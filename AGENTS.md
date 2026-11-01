@@ -68,6 +68,25 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
 - `Info.plist` sets `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` (needed
   on iOS 9); the **Security** framework is linked (keychain).
 
+## Getting logs from the iPad
+
+- **Live syslog**: `idevicesyslog --syslog-relay -m "LibraryNewspaper"`.
+  The `--syslog-relay` flag is **required** on iOS 9 — default mode wants the
+  newer `os_trace_relay`, which old iOS lacks, and exits with
+  `Could not connect to com.apple.os_trace_relay service (-2)`.
+- **Crash reports**: `idevicecrashreport <dir>` copies device crash logs
+  (omit `-e`; that deletes them from the device).
+- The web flow logs under the `[auth]` prefix (steps, page loads, JS probe
+  results, failures); the logon screen logs keychain reads/writes under
+  `[login]`. Credentials are never logged.
+- **Keychain on an ad-hoc build**: iOS 9 refuses keychain access
+  (`errSecMissingEntitlement`, error -34018) unless the signature carries
+  entitlements. `build_legacy.sh` signs with
+  `--entitlements tools/legacy-entitlements.plist`
+  (`application-identifier` + `keychain-access-groups` = bundle id). If a
+  rebuild loses keychain access, check that the entitlements file is still
+  passed to `codesign`.
+
 ## Toolchain constraint (important)
 
 The installed Xcode is **26.3 / iOS 26.2 SDK**, which **cannot** produce a binary for this iPad:

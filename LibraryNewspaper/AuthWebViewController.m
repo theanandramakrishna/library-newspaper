@@ -194,6 +194,7 @@ static NSString * const LNPickIssueScript =
     self.title = [self titleForStep:_step];
     [self resetTimeout];
 
+    NSLog(@"[auth] loading redirector");
     NSURLRequest *request =
         [NSURLRequest requestWithURL:[NSURL URLWithString:LNRedirectorURLString]];
     [_webView loadRequest:request];
@@ -248,6 +249,8 @@ static NSString * const LNPickIssueScript =
     [self resetTimeout];
 
     NSString *host = _webView.request.mainDocumentURL.host.lowercaseString;
+    NSLog(@"[auth] page loaded (step %ld): %@", (long)_step, host ?: @"(nil)");
+
     BOOL isNewsBank = [host containsString:@"newsbank.com"];
 
     if (isNewsBank) {
@@ -264,6 +267,7 @@ static NSString * const LNPickIssueScript =
 
 - (void)tryLoginForm {
     NSString *result = [self runScript:LNLoginFillScript(_username, _password)] ?: @"";
+    NSLog(@"[auth] login form probe: %@", result);
 
     if ([result hasPrefix:@"SUBMITTED"]) {
         _loginAttempts++;
@@ -281,6 +285,7 @@ static NSString * const LNPickIssueScript =
 
 - (void)handleNewsBankPage {
     NSString *result = nil;
+    NSLog(@"[auth] NewsBank page at step %ld", (long)_step);
 
     switch (_step) {
         case LNAuthStepAwaitLoginForm:
@@ -296,6 +301,7 @@ static NSString * const LNPickIssueScript =
                               detail:result];
                 return;
             }
+            NSLog(@"[auth] clicked Seattle Times Collection");
             [self setStep:LNAuthStepAwaitImageFormatClick];
             return;
 
@@ -306,6 +312,7 @@ static NSString * const LNPickIssueScript =
                               detail:result];
                 return;
             }
+            NSLog(@"[auth] clicked image format");
             [self setStep:LNAuthStepAwaitIssueClick];
             return;
 
@@ -316,6 +323,7 @@ static NSString * const LNPickIssueScript =
                               detail:result];
                 return;
             }
+            NSLog(@"[auth] clicked latest issue; automation complete");
             [self setStep:LNAuthStepDone];
             [_timeoutTimer invalidate];
             return;
@@ -331,6 +339,7 @@ static NSString * const LNPickIssueScript =
     if (_step == LNAuthStepDone) {
         return;
     }
+    NSLog(@"[auth] FAILED (step %ld): %@ | detail: %@", (long)_step, reason, detail ?: @"(none)");
     _step = LNAuthStepDone;
     [_timeoutTimer invalidate];
 

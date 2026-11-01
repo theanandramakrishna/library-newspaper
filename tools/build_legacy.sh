@@ -76,8 +76,8 @@ xcrun ibtool --errors --warnings --notices \
     LibraryNewspaper/LaunchScreen.storyboard >/dev/null
 plutil -convert binary1 "$APP/Info.plist"
 
-echo "==> Signing (ad-hoc)"
-codesign -f -s - "$APP"
+echo "==> Signing (ad-hoc, with keychain entitlements)"
+codesign -f -s - --entitlements tools/legacy-entitlements.plist "$APP"
 
 rm -f "$BUILD/LibraryNewspaper.ipa"
 (cd "$BUILD" && /usr/bin/zip -qry LibraryNewspaper.ipa Payload)
