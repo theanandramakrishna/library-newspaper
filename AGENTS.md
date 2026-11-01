@@ -206,8 +206,9 @@ LibraryNewspaper.xcodeproj/        Xcode project (programmatic UIKit, no main st
 LibraryNewspaper/
   main.m                           UIApplicationMain
   AppDelegate.h/.m                 Window + navigation controller, dark navigation bar
+  HomeViewController.h/.m          Root view controller: offline viewer + footer (Settings/Date/Fetch paper)
   LoginViewController.h/.m         Logon screen, Keychain credential storage
-  AuthWebViewController.h/.m       UIWebView flow: OpenAthens login -> Seattle Times issue
+  AuthWebViewController.h/.m       UIWebView flow: OpenAthens login -> Seattle Times issue -> download pipeline
   Models.h/.m                      LNIssue / LNPage / LNArticle / LNSearchHit, JSON parsing (offline reader)
   LibraryStore.h/.m                Scans Documents/NewsFiles, articles, OCR, search, image cache (offline reader)
   LibraryViewController.h/.m       Issue list + empty state (offline reader, currently unreachable)
