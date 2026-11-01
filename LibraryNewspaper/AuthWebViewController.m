@@ -957,7 +957,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         // Found both page image and next-page link: download image, advance.
         _downloadRetries = 0;
         _isLastPage = NO;
-        [self downloadImageAtURLString:imageURL];
+        [self downloadImageAtURLString:imageURL isFallback:NO];
         NSURL *url = [NSURL URLWithString:nextPage];
         if (url) {
             _navigationPending = YES;
@@ -966,7 +966,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         }
         // No next page link despite having one: treat as last page.
         _isLastPage = YES;
-        [self downloadImageAtURLString:imageURL];
+        [self downloadImageAtURLString:imageURL isFallback:NO];
         return;
     }
 
@@ -974,7 +974,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         // Found image but no next-page link: last page.
         _downloadRetries = 0;
         _isLastPage = YES;
-        [self downloadImageAtURLString:imageURL];
+        [self downloadImageAtURLString:imageURL isFallback:NO];
         return;
     }
 
@@ -1031,11 +1031,11 @@ static NSString * const LNEmbeddedAuthFrameScript =
 // Downloads a single page image from the given URL string.
 // NewsBank page images are served as thumbnails (.../thumbnail/color_jpeg_80/);
 // we try to upgrade to the full-resolution page by replacing /thumbnail/ with
-// /full/. If that fails, fall back to the thumbnail URL as-is.
-- (void)downloadImageAtURLString:(NSString *)urlString {
+// /full/. If that fails, fall back to the thumbnail URL as-is (only once).
+- (void)downloadImageAtURLString:(NSString *)urlString isFallback:(BOOL)isFallback {
     // Try upgrading NewsBank thumbnail URL to full-resolution page image.
     NSString *fullResURL = urlString;
-    if ([urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
+    if (!isFallback && [urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
         fullResURL = [urlString stringByReplacingOccurrencesOfString:@"/thumbnail/"
                                                         withString:@"/full/"];
         NSLog(@"[auth] trying full-res URL: %@", fullResURL);
@@ -1054,10 +1054,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
                                                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error != nil || data == nil) {
             NSLog(@"[auth] download image failed for page %ld: %@", (long)pageNumber, error ?: @"no data");
-            // Fall back to the original thumbnail URL.
-            if (fullResURL != urlString) {
+            // Fall back to the original thumbnail URL (only once).
+            if (!isFallback && fullResURL != urlString) {
                 NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
-                [self downloadImageAtURLString:urlString];
+                [self downloadImageAtURLString:urlString isFallback:YES];
             } else {
                 [self finishDownload];
             }
@@ -1078,10 +1078,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
         UIImage *testImage = [UIImage imageWithData:data];
         if (testImage == nil) {
             NSLog(@"[auth] page %ld: downloaded data is NOT a valid image", (long)pageNumber);
-            // Fall back to the original thumbnail URL.
-            if (fullResURL != urlString) {
+            // Fall back to the original thumbnail URL (only once).
+            if (!isFallback && fullResURL != urlString) {
                 NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
-                [self downloadImageAtURLString:urlString];
+                [self downloadImageAtURLString:urlString isFallback:YES];
             } else {
                 [self finishDownload];
             }
