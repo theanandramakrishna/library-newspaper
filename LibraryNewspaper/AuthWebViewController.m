@@ -1029,19 +1029,41 @@ static NSString * const LNEmbeddedAuthFrameScript =
 }
 
 // Downloads a single page image from the given URL string.
-// NewsBank page images are served as thumbnails (.../thumbnail/color_jpeg_80/);
-// we try to upgrade to the full-resolution page by replacing /thumbnail/ with
-// /full/. If that fails, fall back to the thumbnail URL as-is (only once).
+// NewsBank page images come in two sizes:
+//   thumbnail: .../maximus/cache/0/thumbnail/color_jpeg_80/H1/H2/thumb_200_H2.jpg  (small, works)
+//   x-large:   .../maximus/cache/0/images/color_jpeg_80/H1/H2/x-large/H1_H2.jpg    (full-res, from HAR)
+//
+// We construct the x-large URL from the thumbnail URL pattern discovered in the
+// HAR file (newsbank.har shows the PDF download embeds an x-large image). If
+// x-large fails, fall back to the thumbnail URL (only once).
 - (void)downloadImageAtURLString:(NSString *)urlString isFallback:(BOOL)isFallback {
-    // Try upgrading NewsBank thumbnail URL to full-resolution page image.
-    NSString *fullResURL = urlString;
+    // Construct x-large URL from thumbnail URL pattern.
+    NSString *xLargeURL = nil;
     if (!isFallback && [urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
-        fullResURL = [urlString stringByReplacingOccurrencesOfString:@"/thumbnail/"
-                                                        withString:@"/full/"];
-        NSLog(@"[auth] trying full-res URL: %@", fullResURL);
+        // Pattern: .../thumbnail/color_jpeg_80/HASH1/HASH2/thumb_200_HASH2.jpg
+        NSRange thumbRange = [urlString rangeOfString:@"/thumbnail/color_jpeg_80/"];
+        if (thumbRange.location != NSNotFound) {
+            NSString *after = [urlString substringFromIndex:thumbRange.location + thumbRange.length];
+            // after = "HASH1/HASH2/thumb_200_HASH2.jpg"
+            NSArray *parts = [after componentsSeparatedByString:@"/"];
+            if (parts.count >= 3) {
+                NSString *hash1 = parts[0];
+                NSString *hash2 = parts[1];
+                // Verify parts[2] matches thumb_200_HASH2.jpg
+                NSString *expectedFile = [NSString stringWithFormat:@"thumb_200_%@.jpg", hash2];
+                if ([parts[2] isEqualToString:expectedFile]) {
+                    // Build x-large URL: replace /thumbnail/ with /images/ and add /x-large/
+                    NSString *before = [urlString substringToIndex:thumbRange.location];
+                    xLargeURL = [NSString stringWithFormat:@"%@/images/color_jpeg_80/%@/%@/x-large/%@_%@.jpg",
+                                 before, hash1, hash2, hash1, hash2];
+                    NSLog(@"[auth] trying x-large URL: %@", xLargeURL);
+                }
+            }
+        }
     }
 
-    NSURL *url = [NSURL URLWithString:fullResURL];
+    NSString *targetURL = xLargeURL ?: urlString;
+    NSURL *url = [NSURL URLWithString:targetURL];
     if (url == nil) {
         NSLog(@"[auth] download: invalid image URL: %@", urlString);
         [self finishDownload];
@@ -1055,7 +1077,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         if (error != nil || data == nil) {
             NSLog(@"[auth] download image failed for page %ld: %@", (long)pageNumber, error ?: @"no data");
             // Fall back to the original thumbnail URL (only once).
-            if (!isFallback && fullResURL != urlString) {
+            if (!isFallback && xLargeURL != nil) {
                 NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
                 [self downloadImageAtURLString:urlString isFallback:YES];
             } else {
@@ -1079,7 +1101,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
         if (testImage == nil) {
             NSLog(@"[auth] page %ld: downloaded data is NOT a valid image", (long)pageNumber);
             // Fall back to the original thumbnail URL (only once).
-            if (!isFallback && fullResURL != urlString) {
+            if (!isFallback && xLargeURL != nil) {
                 NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
                 [self downloadImageAtURLString:urlString isFallback:YES];
             } else {
