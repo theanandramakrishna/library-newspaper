@@ -1030,16 +1030,18 @@ static NSString * const LNEmbeddedAuthFrameScript =
 
 // Downloads a single page image from the given URL string.
 // NewsBank page images are served as thumbnails (.../thumbnail/color_jpeg_80/);
-// we upgrade to the full-resolution page by replacing /thumbnail/ with /full/.
+// we try to upgrade to the full-resolution page by replacing /thumbnail/ with
+// /full/. If that fails, fall back to the thumbnail URL as-is.
 - (void)downloadImageAtURLString:(NSString *)urlString {
-    // Upgrade NewsBank thumbnail URL to full-resolution page image.
+    // Try upgrading NewsBank thumbnail URL to full-resolution page image.
+    NSString *fullResURL = urlString;
     if ([urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
-        urlString = [urlString stringByReplacingOccurrencesOfString:@"/thumbnail/"
+        fullResURL = [urlString stringByReplacingOccurrencesOfString:@"/thumbnail/"
                                                         withString:@"/full/"];
-        NSLog(@"[auth] upgraded to full-res URL: %@", urlString);
+        NSLog(@"[auth] trying full-res URL: %@", fullResURL);
     }
 
-    NSURL *url = [NSURL URLWithString:urlString];
+    NSURL *url = [NSURL URLWithString:fullResURL];
     if (url == nil) {
         NSLog(@"[auth] download: invalid image URL: %@", urlString);
         [self finishDownload];
@@ -1052,17 +1054,47 @@ static NSString * const LNEmbeddedAuthFrameScript =
                                                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error != nil || data == nil) {
             NSLog(@"[auth] download image failed for page %ld: %@", (long)pageNumber, error ?: @"no data");
+            // Fall back to the original thumbnail URL.
+            if (fullResURL != urlString) {
+                NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
+                [self downloadImageAtURLString:urlString];
+            } else {
+                [self finishDownload];
+            }
             return;
         }
 
+        // Log HTTP status and MIME type.
+        NSInteger statusCode = 0;
+        NSString *mime = @"";
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            statusCode = [(NSHTTPURLResponse *)response statusCode];
+            mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"] ?: @"";
+        }
+        NSLog(@"[auth] page %ld: status=%ld mime=%@ data=%ld bytes",
+              (long)pageNumber, (long)statusCode, mime, (long)data.length);
+
+        // Verify the data is a valid image before saving.
+        UIImage *testImage = [UIImage imageWithData:data];
+        if (testImage == nil) {
+            NSLog(@"[auth] page %ld: downloaded data is NOT a valid image", (long)pageNumber);
+            // Fall back to the original thumbnail URL.
+            if (fullResURL != urlString) {
+                NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
+                [self downloadImageAtURLString:urlString];
+            } else {
+                [self finishDownload];
+            }
+            return;
+        }
+        NSLog(@"[auth] page %ld: valid image %dx%d", (long)pageNumber,
+              (NSInteger)testImage.size.width, (NSInteger)testImage.size.height);
+
         // Determine file extension from MIME type or URL.
         NSString *extension = @"jpg";
-        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-            NSString *mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"] ?: @"";
-            if ([mime hasPrefix:@"image/png"]) extension = @"png";
-            else if ([mime hasPrefix:@"image/jpeg"]) extension = @"jpg";
-            else if ([mime hasPrefix:@"image/tiff"]) extension = @"tiff";
-        }
+        if ([mime hasPrefix:@"image/png"]) extension = @"png";
+        else if ([mime hasPrefix:@"image/jpeg"]) extension = @"jpg";
+        else if ([mime hasPrefix:@"image/tiff"]) extension = @"tiff";
 
         NSString *fileName = [NSString stringWithFormat:@"%03ld.%@", (long)pageNumber, extension];
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
@@ -1079,7 +1111,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
             NSURL *fileURL = [NSURL fileURLWithPath:filePath];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [_pageImageURLs addObject:fileURL];
-                NSLog(@"[auth] downloaded page %ld -> %@", (long)pageNumber, filePath);
+                NSLog(@"[auth] downloaded page %ld -> %@ (%ld bytes)", (long)pageNumber, filePath, (long)data.length);
 
                 // As soon as page 1 is saved, switch to the offline reader so
                 // the user can start reading while the rest download.
@@ -1099,6 +1131,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
             });
         } else {
             NSLog(@"[auth] failed to write page image: %@", filePath);
+            [self finishDownload];
         }
     }];
     [task resume];
