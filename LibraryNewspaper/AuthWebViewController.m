@@ -44,10 +44,14 @@ static NSString *LNJavaScriptString(NSString *value) {
 }
 
 // Handles modern login pages, including two-step ones (username first, then a
-// password step that appears in place). Returns one of:
-//   NOFORM                       - nothing actionable on the page
-//   NOSUBMIT                     - fields found but no way to submit
-//   SUBMITTED:both|user|pass:how - credentials sent (which fields, and how)
+// password step that appears in place), and SAML POST hand-off pages (hidden
+// SAMLResponse/RelayState inputs that the page's own JS would auto-submit; on
+// iOS 9 that JS does not run, so we submit the form ourselves). Returns:
+//   NOFORM                                - nothing actionable on the page
+//   NOSUBMIT                              - fields found but no way to submit
+//   SUBMITTED:both|user|pass|saml:how     - form sent (which fields, and how)
+// It also looks inside same-origin iframes. Uses createEvent so it works on
+// iOS 9's engine.
 // It also looks inside same-origin iframes. Uses createEvent so it works on
 // iOS 9's engine.
 static NSString *LNCredentialProbeScript(NSString *username, NSString *password) {
@@ -106,6 +110,13 @@ static NSString *LNCredentialProbeScript(NSString *username, NSString *password)
         "return how2?('SUBMITTED:user:'+how2):'NOSUBMIT';"
         "}"
         "var r=findIn(document);"
+        "if(r==='NOFORM'||r==='NOSUBMIT'){"
+        "var saml=document.querySelector('input[name=SAMLResponse]');"
+        "if(saml){"
+        "var sf=saml.form||document.querySelector('form');"
+        "if(sf){sf.submit();return 'SUBMITTED:saml';}"
+        "}"
+        "}"
         "if(r==='NOFORM'||r==='NOSUBMIT'){"
         "var fs=document.querySelectorAll('iframe');"
         "for(var k=0;k<fs.length;k++){"
