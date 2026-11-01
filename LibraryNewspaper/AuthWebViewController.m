@@ -706,13 +706,15 @@ static NSString * const LNEmbeddedAuthFrameScript =
 #pragma mark - Failure
 
 - (void)failWithReason:(NSString *)reason detail:(NSString *)detail {
+    // Do not pop back to the logon screen on failure. Stay in the web view so
+    // the user can see what happened and either retry the current step or
+    // dismiss the alert and remain where they are.
     if (_step == LNAuthStepDone) {
         return;
     }
     NSString *failURL = _webView.request.mainDocumentURL.absoluteString ?: @"(nil)";
     NSLog(@"[auth] FAILED (step %ld): %@ | url: %@ | detail: %@",
           (long)_step, reason, failURL, detail ?: @"(none)");
-    _step = LNAuthStepDone;
     [_timeoutTimer invalidate];
     [_pollTimer invalidate];
 
@@ -730,15 +732,25 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Sign-in failed"
+        [UIAlertController alertControllerWithTitle:@"Flow stopped"
                                             message:message
                                      preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
+    [alert addAction:[UIAlertAction actionWithTitle:@"Retry"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [self.navigationController popViewControllerAnimated:YES];
+        [self retryCurrentStep];
     }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Dismiss"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+// Re-arm the current step and poll again instead of giving up.
+- (void)retryCurrentStep {
+    _attempts = 0;
+    [self resetTimeout];
+    [self startStepPolling];
 }
 
 #pragma mark - UIWebViewDelegate
