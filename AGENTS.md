@@ -81,9 +81,11 @@ stored in the **Keychain** (`kSecClassGenericPassword`, service
      links point at `issue-browse?...mody:MMDD...&action=browse&format=image`.
      The app picks the largest `mody` among links whose text is a full date
      (ignoring the bare day-number calendar) and **navigates directly** to it.
-  7. Viewer page = `issue-browse ... &format=image`: shows page 1 of the issue
-     as an image ("News Article, Seattle Times, The (WA), <date>, p1") with a
-     "Next Page" link. Automation stops here; the user reads in the web view.
+  7. Viewer page = `document-view ... &format=image` (the site renders the
+     `issue-browse` request as a `document-view` page): shows page 1 of the
+     issue as an image ("News Article, Seattle Times, The (WA), <date>, p1")
+     with a "Next Page" link. Automation stops here; the user reads in the web
+     view.
 
 Both the collection and publication pages are plain **server-rendered HTML**
 (verified: `browse-pub` / `issue-browse` appear in the raw document, built with
