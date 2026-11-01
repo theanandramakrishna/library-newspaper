@@ -20,6 +20,7 @@
 		B1000000000000000000003B /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000045 /* LaunchScreen.storyboard */; };
 		B1000000000000000000003C /* LoginViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000047 /* LoginViewController.m */; };
 		B1000000000000000000003D /* AuthWebViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000049 /* AuthWebViewController.m */; };
+		B20000000000000000000052 /* HomeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000051 /* HomeViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,8 @@
 		B10000000000000000000047 /* LoginViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LoginViewController.m; sourceTree = "<group>"; };
 		B10000000000000000000048 /* AuthWebViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AuthWebViewController.h; sourceTree = "<group>"; };
 		B10000000000000000000049 /* AuthWebViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AuthWebViewController.m; sourceTree = "<group>"; };
+		B20000000000000000000050 /* HomeViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HomeViewController.h; sourceTree = "<group>"; };
+		B20000000000000000000051 /* HomeViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = HomeViewController.m; sourceTree = "<group>"; };
 		B10000000000000000000044 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000045 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -104,6 +107,8 @@
 				B10000000000000000000047 /* LoginViewController.m */,
 				B10000000000000000000048 /* AuthWebViewController.h */,
 				B10000000000000000000049 /* AuthWebViewController.m */,
+				B20000000000000000000050 /* HomeViewController.h */,
+				B20000000000000000000051 /* HomeViewController.m */,
 				B10000000000000000000045 /* LaunchScreen.storyboard */,
 				B10000000000000000000044 /* Info.plist */,
 			);
@@ -190,6 +195,7 @@
 				B1000000000000000000003A /* SearchViewController.m in Sources */,
 				B1000000000000000000003C /* LoginViewController.m in Sources */,
 				B1000000000000000000003D /* AuthWebViewController.m in Sources */,
+				B20000000000000000000052 /* HomeViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

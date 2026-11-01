@@ -1,4 +1,5 @@
 #import "AuthWebViewController.h"
+#import "Models.h"
 
 // The fixed KCLS entry point. The url= parameter is the NewsBank landing page,
 // percent-encoded as the redirector expects.
@@ -201,34 +202,96 @@ static NSString * const LNImageEditionURLScript =
     "return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+all.length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,200)+'\\n'+dump.join('\\n');"
     "})()";
 
-// Finds the absolute URL of the most recent issue on the publication page's
-// "View Recent Issues" list. Those links point at issue-browse with a
-// mody:MMDD parameter and format=image; only links whose text is a full date
-// count (the page also has a bare day-number calendar for the same month).
-// Picks the largest mody value. Returns 'URL:<absolute>' or 'NOTFOUND'+dump.
-static NSString * const LNPickIssueURLScript =
+// Finds the absolute URL of the issue on the publication page's "View Recent
+// Issues" list whose text matches the target date (yyyy-MM-dd). Links point at
+// issue-browse with a mody:MMDD parameter and format=image. Only links whose
+// text is a full date count. Returns 'URL:<absolute>' or 'NOTFOUND'+dump.
+static NSString *LNPickIssueURLScriptForDate(NSString *targetDate) {
+    return [NSString stringWithFormat:
+        @"(function(){"
+        "function abs(p){var x=document.createElement('a');x.href=p;return x.href;}"
+        "var target='%@';"
+        "var monthNames={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};"
+        "var tp=target.split('-');"
+        "var ty=parseInt(tp[0],10),tm=parseInt(tp[1],10),td=parseInt(tp[2],10);"
+        "var links=document.querySelectorAll('a[href*=issue-browse]');"
+        "var dump=[];"
+        "for(var i=0;i<links.length;i++){"
+        "var a=links[i];"
+        "var raw=a.getAttribute('href')||'';"
+        "var href=decodeURIComponent(raw);"
+        "if(href.indexOf('format=image')<0)continue;"
+        "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
+        "var dm=txt.match(/([a-z]+)\\s+(\\d{1,2}),?\\s+(\\d{4})/i);"
+        "if(!dm)continue;"
+        "dump.push(txt.substring(0,40)+' => '+raw.substring(0,90));"
+        "var mn=dm[1].toLowerCase().substring(0,3);"
+        "var d=parseInt(dm[2],10),y=parseInt(dm[3],10);"
+        "if(monthNames[mn]===undefined)continue;"
+        "if(y===ty&&monthNames[mn]+1===tm&&d===td)return 'URL:'+abs(raw);"
+        "}"
+        "return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+document.querySelectorAll('a').length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,180)+'\\n'+dump.slice(0,25).join('\\n');"
+        "})()",
+        LNJavaScriptString(targetDate)];
+}
+
+// Picks the most recent issue from the publication page's "View Recent Issues"
+// list (no target date). Returns 'URL:<absolute>' or 'NOTFOUND'+dump.
+static NSString *LNPickIssueURLScriptLatest(void) {
+    return [NSString stringWithFormat:
+        @"(function(){"
+        "function abs(p){var x=document.createElement('a');x.href=p;return x.href;}"
+        "var links=document.querySelectorAll('a[href*=issue-browse]');"
+        "var best=null;"
+        "var bestMody=-1;"
+        "var dateRe=/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? \\d{1,2},? \\d{4}/i;"
+        "var dump=[];"
+        "for(var i=0;i<links.length;i++){"
+        "var a=links[i];"
+        "var raw=a.getAttribute('href')||'';"
+        "var href=decodeURIComponent(raw);"
+        "if(href.indexOf('format=image')<0)continue;"
+        "var m=href.match(/mody:(\\d{4})/);"
+        "if(!m)continue;"
+        "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
+        "dump.push(txt.substring(0,40)+' => '+raw.substring(0,90));"
+        "if(!dateRe.test(txt))continue;"
+        "var mody=parseInt(m[1],10);"
+        "if(mody>bestMody){bestMody=mody;best=raw;}"
+        "}"
+        "if(!best)return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+document.querySelectorAll('a').length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,180)+'\\n'+dump.slice(0,25).join('\\n');"
+        "return 'URL:'+abs(best);"
+        "})()"];
+}
+
+// On the document-view viewer page, extracts the page-1 image URL and the
+// "Next Page" link so the app can download pages one at a time. Returns a JSON
+// object: {"image":"<url>","nextPage":"<url>"}.
+static NSString * const LNDownloadPageScript =
     @"(function(){"
-    "function abs(p){var x=document.createElement('a');x.href=p;return x.href;}"
-    "var links=document.querySelectorAll('a[href*=issue-browse]');"
-    "var best=null;"
-    "var bestMody=-1;"
-    "var dateRe=/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? \\d{1,2},? \\d{4}/i;"
-    "var dump=[];"
-    "for(var i=0;i<links.length;i++){"
-    "var a=links[i];"
-    "var raw=a.getAttribute('href')||'';"
-    "var href=decodeURIComponent(raw);"
-    "if(href.indexOf('format=image')<0)continue;"
-    "var m=href.match(/mody:(\\d{4})/);"
-    "if(!m)continue;"
-    "var txt=(a.textContent||'').replace(/\\s+/g,' ').trim();"
-    "dump.push(txt.substring(0,40)+' => '+raw.substring(0,90));"
-    "if(!dateRe.test(txt))continue;"
-    "var mody=parseInt(m[1],10);"
-    "if(mody>bestMody){bestMody=mody;best=raw;}"
+    "var result={image:'',nextPage:''};"
+    "var imgs=document.querySelectorAll('img');"
+    "for(var i=0;i<imgs.length;i++){"
+    "var src=imgs[i].src||'';"
+    "var w=imgs[i].width||0;"
+    "var h=imgs[i].height||0;"
+    "if(w>200&&h>200&&src.indexOf('document-view')<0){result.image=src;break;}"
     "}"
-    "if(!best)return 'NOTFOUND T:'+(document.title||'').substring(0,50)+' A:'+document.querySelectorAll('a').length+' X:'+((document.body&&document.body.innerText)||'').replace(/\\s+/g,' ').substring(0,180)+'\\n'+dump.slice(0,25).join('\\n');"
-    "return 'URL:'+abs(best);"
+    "if(!result.image){"
+    "for(var i=0;i<imgs.length;i++){"
+    "var src=imgs[i].src||'';"
+    "if(src.indexOf('document-view')>=0){result.image=src;break;}"
+    "}"
+    "}"
+    "var links=document.querySelectorAll('a');"
+    "for(var i=0;i<links.length;i++){"
+    "var text=(links[i].textContent||'').toLowerCase();"
+    "var href=links[i].href||'';"
+    "if((text.indexOf('next page')>=0||text==='next page')&&href.length>0){"
+    "result.nextPage=href;break;"
+    "}"
+    "}"
+    "return JSON.stringify(result);"
     "})()";
 
 // Dumps the structure of a page that keeps reporting NOFORM: title, inputs,
@@ -325,12 +388,16 @@ static NSString * const LNEmbeddedAuthFrameScript =
 @implementation AuthWebViewController
 
 - (instancetype)initWithUsername:(NSString *)username
-                        password:(NSString *)password {
+                        password:(NSString *)password
+                       targetDate:(NSString *)targetDate {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _username = [username copy];
         _password = [password copy];
+        _targetDate = [targetDate copy];
         _step = LNAuthStepAwaitLoginForm;
+        _pageImageURLs = [NSMutableArray array];
+        _downloadSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
     }
     return self;
 }
@@ -433,6 +500,12 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
     _navigationPending = NO;
     _lastHandledURLString = [currentURL copy];
+
+    // While downloading pages, route page loads to the download handler.
+    if (_downloadActive) {
+        [self downloadTick];
+        return;
+    }
 
     if (_step == LNAuthStepDone) {
         return;
@@ -642,11 +715,9 @@ static NSString * const LNEmbeddedAuthFrameScript =
     }
 
     NSString *urlString = _webView.request.mainDocumentURL.absoluteString ?: @"";
-    if ([self isImageViewerURL:urlString]) {
-        NSLog(@"[auth] image viewer reached; automation complete");
-        [self setStep:LNAuthStepDone];
-        [_timeoutTimer invalidate];
-        [_pollTimer invalidate];
+    if ([self isImageViewerURL:urlString] && !_downloadActive) {
+        NSLog(@"[auth] image viewer reached; starting download");
+        [self startDownload];
         return;
     }
 
@@ -683,14 +754,24 @@ static NSString * const LNEmbeddedAuthFrameScript =
             }
         }
     } else {  // LNAuthStepAwaitIssueClick
-        result = [self runScript:LNPickIssueURLScript] ?: @"";
+        // Pick the issue matching the target date, or the most recent if no
+        // date was specified.
+        NSString *pickScript;
+        if (_targetDate != nil) {
+            pickScript = LNPickIssueURLScriptForDate(_targetDate);
+        } else {
+            pickScript = LNPickIssueURLScriptLatest();
+        }
+        result = [self runScript:pickScript] ?: @"";
         if ([result hasPrefix:@"URL:"]) {
             target = [result substringFromIndex:4];
-            NSLog(@"[auth] latest issue URL: %@", target);
+            NSLog(@"[auth] issue URL: %@", target);
         } else {
             _attempts++;
             if (_attempts >= LNNewsBankMaxAttempts) {
-                [self failWithReason:@"Could not find the latest issue link."
+                [self failWithReason:_targetDate != nil
+                              ? [NSString stringWithFormat:@"Could not find the issue for %@.", _targetDate]
+                              : @"Could not find the latest issue link."
                               detail:result];
             }
             return;
@@ -752,6 +833,253 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _attempts = 0;
     [self resetTimeout];
     [self startStepPolling];
+}
+
+#pragma mark - Download pipeline
+
+// Called when the image viewer (document-view with format=image) is reached.
+// Starts downloading page images one at a time.
+- (void)startDownload {
+    _downloadActive = YES;
+    [_pollTimer invalidate];
+    [_timeoutTimer invalidate];
+
+    // Extract issue info from the viewer URL.
+    NSString *urlString = _webView.request.mainDocumentURL.absoluteString ?: @"";
+    _issueTitle = @"Seattle Times, The (WA)";
+    _issueDateText = _targetDate ?: @"";
+    NSDate *issueDate = nil;
+    if (_issueDateText.length > 0) {
+        issueDate = LNParseDate(_issueDateText);
+    }
+    if (issueDate == nil) {
+        issueDate = [NSDate date];
+    }
+
+    // Build issue ID: STS2S-EEDT-YYYY-MM-DD
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    df.dateFormat = @"yyyy-MM-dd";
+    _issueIDString = [NSString stringWithFormat:@"STS2S-EEDT-%@", [df stringFromDate:issueDate]];
+    _nextDownloadPage = 1;
+
+    NSLog(@"[auth] download starting for issue %@", _issueIDString);
+
+    [self downloadTick];
+}
+
+// Called when a page finishes loading during the download phase. Extracts the
+// page image and next-page link, downloads the image, and either navigates to
+// the next page or finishes.
+- (void)downloadTick {
+    NSString *result = [self runScript:LNDownloadPageScript] ?: @"";
+    NSLog(@"[auth] download page extract: %@", result);
+
+    NSData *jsonData = [result dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *info = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:NULL];
+    if (![info isKindOfClass:[NSDictionary class]]) {
+        info = @{};
+    }
+
+    NSString *imageURL = info[@"image"] ?: @"";
+    NSString *nextPage = info[@"nextPage"] ?: @"";
+
+    if (imageURL.length > 0) {
+        [self downloadImageAtURLString:imageURL];
+    }
+
+    if (nextPage.length > 0) {
+        NSURL *url = [NSURL URLWithString:nextPage];
+        if (url) {
+            _navigationPending = YES;
+            [_webView loadRequest:[NSURLRequest requestWithURL:url]];
+            return;
+        }
+    }
+
+    // No more pages: save the issue to disk.
+    [self finishDownload];
+}
+
+// Downloads a single page image from the given URL string.
+- (void)downloadImageAtURLString:(NSString *)urlString {
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (url == nil) {
+        NSLog(@"[auth] download: invalid image URL: %@", urlString);
+        [self finishDownload];
+        return;
+    }
+
+    NSURLRequest *request = [NSURLRequest requestWithURL:url];
+    NSInteger pageNumber = _nextDownloadPage++;
+    NSURLSessionDataTask *task = [_downloadSession dataTaskWithRequest:request
+                                                    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error != nil || data == nil) {
+            NSLog(@"[auth] download image failed for page %ld: %@", (long)pageNumber, error ?: @"no data");
+            return;
+        }
+
+        // Determine file extension from MIME type or URL.
+        NSString *extension = @"jpg";
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSString *mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"] ?: @"";
+            if ([mime hasPrefix:@"image/png"]) extension = @"png";
+            else if ([mime hasPrefix:@"image/jpeg"]) extension = @"jpg";
+            else if ([mime hasPrefix:@"image/tiff"]) extension = @"tiff";
+        }
+
+        NSString *fileName = [NSString stringWithFormat:@"%03ld.%@", (long)pageNumber, extension];
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documentsPath = paths.firstObject;
+        NSString *issueDir = [documentsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"NewsFiles/%@", _issueIDString]];
+        NSString *pagesDir = [issueDir stringByAppendingPathComponent:@"pages"];
+        NSString *filePath = [pagesDir stringByAppendingPathComponent:fileName];
+
+        // Create directories if needed.
+        NSFileManager *fm = [NSFileManager defaultManager];
+        [fm createDirectoryAtPath:pagesDir withIntermediateDirectories:YES attributes:nil error:NULL];
+
+        if ([data writeToFile:filePath atomically:YES]) {
+            NSURL *fileURL = [NSURL fileURLWithPath:filePath];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [_pageImageURLs addObject:fileURL];
+                NSLog(@"[auth] downloaded page %ld -> %@", (long)pageNumber, filePath);
+            });
+        } else {
+            NSLog(@"[auth] failed to write page image: %@", filePath);
+        }
+    }];
+    [task resume];
+}
+
+// Saves the issue metadata (issue.json) and finishes the download.
+- (void)finishDownload {
+    _downloadActive = NO;
+
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsPath = paths.firstObject;
+    NSString *issueDir = [documentsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"NewsFiles/%@", _issueIDString]];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:issueDir withIntermediateDirectories:YES attributes:nil error:NULL];
+    [fm createDirectoryAtPath:[issueDir stringByAppendingPathComponent:@"articles"] withIntermediateDirectories:YES attributes:nil error:NULL];
+    [fm createDirectoryAtPath:[issueDir stringByAppendingPathComponent:@"ocr"] withIntermediateDirectories:YES attributes:nil error:NULL];
+
+    // Build page entries.
+    NSMutableArray *pageEntries = [NSMutableArray array];
+    for (NSInteger i = 0; i < _pageImageURLs.count; i++) {
+        NSURL *url = _pageImageURLs[i];
+        [pageEntries addObject:[NSString stringWithFormat:@"pages/%03ld.%@", (long)(i + 1), url.pathExtension]];
+    }
+
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    df.dateFormat = @"yyyy-MM-dd";
+
+    NSDictionary *manifest = @{
+        @"id": _issueIDString,
+        @"title": _issueTitle ?: @"Seattle Times, The (WA)",
+        @"subtitle": @"Image Edition",
+        @"date": _issueDateText ?: [df stringFromDate:[NSDate date]],
+        @"pages": pageEntries
+    };
+
+    NSError *writeError = nil;
+    NSData *jsonData = [NSJSONSerialization JSONObjectWithData:[NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] options:0 error:nil];
+    if (jsonData) {
+        NSString *manifestPath = [issueDir stringByAppendingPathComponent:@"issue.json"];
+        if (![jsonData writeToFile:manifestPath atomically:YES]) {
+            writeError = [NSError errorWithDomain:@"LibraryNewspaper" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to write issue.json"}];
+        }
+    } else {
+        writeError = [NSError errorWithDomain:@"LibraryNewspaper" code:2 userInfo:@{NSLocalizedDescriptionKey: @"Failed to serialize issue.json"}];
+    }
+
+    if (writeError != nil) {
+        _downloadActive = NO;
+        if (_onComplete) {
+            _onComplete(nil, writeError);
+        }
+        return;
+    }
+
+    // Enforce max 5 papers: delete oldest issues beyond the limit.
+    [self enforceMaxPapers];
+
+    // Build an LNIssue for the completion callback.
+    LNIssue *issue = [[LNIssue alloc] init];
+    issue.issueID = _issueIDString;
+    issue.directory = [NSURL fileURLWithPath:issueDir isDirectory:YES];
+    issue.title = _issueTitle ?: @"Seattle Times, The (WA)";
+    issue.subtitle = @"Image Edition";
+    issue.dateText = _issueDateText ?: @"";
+    issue.date = LNParseDate(_issueDateText) ?: [NSDate date];
+
+    NSMutableArray *pages = [NSMutableArray array];
+    for (NSInteger i = 0; i < _pageImageURLs.count; i++) {
+        LNPage *page = [[LNPage alloc] init];
+        page.number = i + 1;
+        page.imageURL = _pageImageURLs[i];
+        page.pixelWidth = 0;
+        page.pixelHeight = 0;
+        [pages addObject:page];
+    }
+    issue.pages = pages;
+
+    NSLog(@"[auth] download complete: %ld pages saved", (long)_pageImageURLs.count);
+
+    if (_onComplete) {
+        _onComplete(issue, nil);
+    }
+}
+
+// Deletes the oldest issues so that at most LHMaxPapers (5) remain on disk.
+- (void)enforceMaxPapers {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsPath = paths.firstObject;
+    NSString *newsFilesDir = [documentsPath stringByAppendingPathComponent:@"NewsFiles"];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *names = [fm contentsOfDirectoryAtPath:newsFilesDir error:NULL];
+    if (names == nil || names.count <= 5) {
+        return;
+    }
+
+    // Load issues with their dates, sort oldest first.
+    NSMutableArray *issueInfos = [NSMutableArray array];
+    for (NSString *name in names) {
+        if ([name hasPrefix:@"."]) continue;
+        NSString *dirPath = [newsFilesDir stringByAppendingPathComponent:name];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:dirPath isDirectory:&isDir] || !isDir) continue;
+
+        NSString *manifestPath = [dirPath stringByAppendingPathComponent:@"issue.json"];
+        NSData *data = [NSData dataWithContentsOfFile:manifestPath];
+        if (data == nil) continue;
+
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if (![object isKindOfClass:[NSDictionary class]]) continue;
+
+        NSString *dateText = object[@"date"] ?: @"";
+        NSDate *date = LNParseDate(dateText) ?: [NSDate distantPast];
+        [issueInfos addObject:@{@"name": name, @"date": date, @"path": dirPath}];
+    }
+
+    // Sort by date descending (newest first), keep first 5, delete the rest.
+    [issueInfos sortUsingComparator:^NSComparisonResult(id obj1, id obj2) {
+        NSDate *d1 = obj1[@"date"];
+        NSDate *d2 = obj2[@"date"];
+        return [d2 compare:d1];
+    }];
+
+    for (NSInteger i = 5; i < issueInfos.count; i++) {
+        NSString *dirPath = issueInfos[i][@"path"];
+        NSError *delError = nil;
+        [fm removeItemAtPath:dirPath error:&delError];
+        if (delError) {
+            NSLog(@"[auth] failed to delete old issue %@: %@", dirPath, delError.localizedDescription);
+        } else {
+            NSLog(@"[auth] deleted old issue to maintain max 5: %@", dirPath);
+        }
+    }
 }
 
 #pragma mark - UIWebViewDelegate

@@ -99,8 +99,10 @@ content fails with a diagnostic dump instead of hanging).
   then **stay in the web view**. The alert offers "Retry" (re-arms the current
   step) or "Dismiss" (stay put). It does **not** pop back to the logon screen
   and does **not** auto-retry beyond the per-step polling cap.
-- The NewsBank reader is viewed **inside the embedded web view only**. Never
-  download/scrape issue content to disk.
+- Issue content is downloaded to disk by the "Fetch paper" flow and stored in
+  `Documents/NewsFiles/<issue-id>/` (issue.json, pages/, articles/, ocr/).
+  At most 5 most recently fetched papers are kept; older ones are deleted.
+  The offline reader then displays the stored paper.
 - `Info.plist` sets `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` (needed
   on iOS 9); the **Security** framework is linked (keychain).
 - Known environmental risk: NewsBank sits behind **AWS WAF** (awswaf.com JS

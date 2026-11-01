@@ -1,18 +1,16 @@
 #import "AppDelegate.h"
-#import "LoginViewController.h"
+#import "HomeViewController.h"
+#import "LibraryStore.h"
 
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application
 didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
 
-    // The app opens on the KCLS logon screen. LoginViewController pushes the
-    // AuthWebViewController web flow on Logon, and automatically for returning
-    // users with saved credentials. The offline file reader
-    // (LibraryViewController and friends) remains compiled but unreachable.
-    LoginViewController *login = [[LoginViewController alloc] init];
+    LibraryStore *store = [LibraryStore sharedStore];
+    HomeViewController *home = [[HomeViewController alloc] initWithStore:store];
     UINavigationController *navigation =
-        [[UINavigationController alloc] initWithRootViewController:login];
+        [[UINavigationController alloc] initWithRootViewController:home];
 
     navigation.navigationBar.barTintColor = [UIColor colorWithWhite:0.08 alpha:1.0];
     navigation.navigationBar.translucent = NO;

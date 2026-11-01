@@ -195,10 +195,19 @@ static BOOL LNKeychainLoadCredentials(NSString **username, NSString **password) 
     ]];
 }
 
++ (BOOL)loadSavedCredentials:(NSString **)username password:(NSString **)password {
+    NSString *u = nil;
+    NSString *p = nil;
+    BOOL ok = LNKeychainLoadCredentials(&u, &p);
+    if (ok && username) *username = u;
+    if (ok && password) *password = p;
+    return ok;
+}
+
 - (void)loadSavedCredentials {
     NSString *username = nil;
     NSString *password = nil;
-    if (LNKeychainLoadCredentials(&username, &password)) {
+    if ([LoginViewController loadSavedCredentials:&username password:&password]) {
         NSLog(@"[login] keychain load: OK");
         _usernameField.text = username;
         _passwordField.text = password;
@@ -231,7 +240,7 @@ static BOOL LNKeychainLoadCredentials(NSString **username, NSString **password) 
     [self clearError];
 
     AuthWebViewController *auth =
-        [[AuthWebViewController alloc] initWithUsername:username password:password];
+        [[AuthWebViewController alloc] initWithUsername:username password:password targetDate:nil];
     [self.navigationController pushViewController:auth animated:YES];
 }
 
@@ -265,6 +274,10 @@ static BOOL LNKeychainLoadCredentials(NSString **username, NSString **password) 
     [super viewDidAppear:animated];
 
     if (_autoStartDone) {
+        return;
+    }
+
+    if (!_autoStartEnabled) {
         return;
     }
 
