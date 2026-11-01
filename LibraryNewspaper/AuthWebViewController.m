@@ -864,6 +864,7 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _issueIDString = [NSString stringWithFormat:@"STS2S-EEDT-%@", [df stringFromDate:issueDate]];
     _nextDownloadPage = 1;
     _downloadRetries = 0;
+    _firstPageDelivered = NO;
 
     NSLog(@"[auth] download starting for issue %@", _issueIDString);
 
@@ -1000,12 +1001,52 @@ static NSString * const LNEmbeddedAuthFrameScript =
             dispatch_async(dispatch_get_main_queue(), ^{
                 [_pageImageURLs addObject:fileURL];
                 NSLog(@"[auth] downloaded page %ld -> %@", (long)pageNumber, filePath);
+
+                // As soon as page 1 is saved, switch to the offline reader so
+                // the user can start reading while the rest download.
+                if (pageNumber == 1 && !_firstPageDelivered) {
+                    _firstPageDelivered = YES;
+                    NSLog(@"[auth] page 1 ready; opening offline reader");
+                    if (_onComplete) {
+                        _onComplete([self buildIssueWithPageCount:1], nil);
+                    }
+                }
             });
         } else {
             NSLog(@"[auth] failed to write page image: %@", filePath);
         }
     }];
     [task resume];
+}
+
+// Builds an LNIssue from the currently downloaded page images (up to
+// pageCount pages). Used to show the first page immediately while the rest
+// continue downloading in the background.
+- (LNIssue *)buildIssueWithPageCount:(NSInteger)pageCount {
+    NSMutableArray *pages = [NSMutableArray array];
+    NSInteger count = MIN(pageCount, (NSInteger)_pageImageURLs.count);
+    for (NSInteger i = 0; i < count; i++) {
+        LNPage *page = [[LNPage alloc] init];
+        page.number = i + 1;
+        page.imageURL = _pageImageURLs[i];
+        page.pixelWidth = 0;
+        page.pixelHeight = 0;
+        [pages addObject:page];
+    }
+
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsPath = paths.firstObject;
+    NSString *issueDir = [documentsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"NewsFiles/%@", _issueIDString]];
+
+    LNIssue *issue = [[LNIssue alloc] init];
+    issue.issueID = _issueIDString;
+    issue.directory = [NSURL fileURLWithPath:issueDir isDirectory:YES];
+    issue.title = _issueTitle ?: @"Seattle Times, The (WA)";
+    issue.subtitle = @"Image Edition";
+    issue.dateText = _issueDateText ?: @"";
+    issue.date = LNParseDate(_issueDateText) ?: [NSDate date];
+    issue.pages = pages;
+    return issue;
 }
 
 // Saves the issue metadata (issue.json) and finishes the download.
@@ -1062,25 +1103,8 @@ static NSString * const LNEmbeddedAuthFrameScript =
     // Enforce max 5 papers: delete oldest issues beyond the limit.
     [self enforceMaxPapers];
 
-    // Build an LNIssue for the completion callback.
-    LNIssue *issue = [[LNIssue alloc] init];
-    issue.issueID = _issueIDString;
-    issue.directory = [NSURL fileURLWithPath:issueDir isDirectory:YES];
-    issue.title = _issueTitle ?: @"Seattle Times, The (WA)";
-    issue.subtitle = @"Image Edition";
-    issue.dateText = _issueDateText ?: @"";
-    issue.date = LNParseDate(_issueDateText) ?: [NSDate date];
-
-    NSMutableArray *pages = [NSMutableArray array];
-    for (NSInteger i = 0; i < _pageImageURLs.count; i++) {
-        LNPage *page = [[LNPage alloc] init];
-        page.number = i + 1;
-        page.imageURL = _pageImageURLs[i];
-        page.pixelWidth = 0;
-        page.pixelHeight = 0;
-        [pages addObject:page];
-    }
-    issue.pages = pages;
+    // Build an LNIssue for the completion callback (all downloaded pages).
+    LNIssue *issue = [self buildIssueWithPageCount:NSIntegerMax];
 
     NSLog(@"[auth] download complete: %ld pages saved", (long)_pageImageURLs.count);
 

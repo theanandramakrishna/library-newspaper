@@ -22,6 +22,7 @@ typedef void (^LNAuthCompletion)(LNIssue *fetchedIssue, NSError *error);
 @property (nonatomic, assign) BOOL downloadActive;
 @property (nonatomic, assign) NSInteger nextDownloadPage;
 @property (nonatomic, assign) NSInteger downloadRetries;
+@property (nonatomic, assign) BOOL firstPageDelivered;
 @property (nonatomic, strong) NSTimer *downloadRetryTimer;
 @property (nonatomic, strong) NSMutableArray *pageImageURLs;
 @property (nonatomic, copy) NSString *issueIDString;
