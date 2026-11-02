@@ -1,5 +1,6 @@
 #import "AuthWebViewController.h"
 #import "Models.h"
+#import <math.h>
 
 // The fixed KCLS entry point. The url= parameter is the NewsBank landing page,
 // percent-encoded as the redirector expects.
@@ -264,48 +265,6 @@ static NSString *LNPickIssueURLScriptLatest(void) {
         "})()"];
 }
 
-// On the document-view viewer page, extracts the page-1 image URL and the
-// "Next Page" link so the app can download pages one at a time. Returns a JSON
-// object: {"image":"<url>","nextPage":"<url>"}.
-//
-// NewsBank embeds the page image as an  whose src points at
-// .../maximus/cache/0/thumbnail/color_jpeg_80/<hash> (a small thumbnail). The
-// full-resolution page is at the same path with /thumbnail/ replaced by /full/.
-// The script first looks for a large real image, then falls back to the
-// maximus/cache thumbnail URL (which we upgrade to full-res when downloading).
-static NSString * const LNDownloadPageScript =
-    @"(function(){"
-    "var result={image:'',nextPage:''};"
-    "var imgs=document.querySelectorAll('img');"
-    "for(var i=0;i<imgs.length;i++){"
-    "var src=imgs[i].src||'';"
-    "var w=imgs[i].width||0;"
-    "var h=imgs[i].height||0;"
-    "if(w>200&&h>200&&src.indexOf('document-view')<0){result.image=src;break;}"
-    "}"
-    "if(!result.image){"
-    "for(var i=0;i<imgs.length;i++){"
-    "var src=imgs[i].src||'';"
-    "if(src.indexOf('maximus/cache/')>=0){result.image=src;break;}"
-    "}"
-    "}"
-    "if(!result.image){"
-    "for(var i=0;i<imgs.length;i++){"
-    "var src=imgs[i].src||'';"
-    "if(src.indexOf('document-view')>=0){result.image=src;break;}"
-    "}"
-    "}"
-    "var links=document.querySelectorAll('a');"
-    "for(var i=0;i<links.length;i++){"
-    "var text=(links[i].textContent||'').toLowerCase();"
-    "var href=links[i].href||'';"
-    "if((text.indexOf('next page')>=0||text==='next page')&&href.length>0){"
-    "result.nextPage=href;break;"
-    "}"
-    "}"
-    "return JSON.stringify(result);"
-    "})()";
-
 // Dumps the structure of a page that keeps reporting NOFORM: title, inputs,
 // buttons, and iframes (including whether each iframe is reachable).
 static NSString * const LNDiagnoseScript =
@@ -335,38 +294,6 @@ static NSString * const LNDiagnoseScript =
     "if(d&&d.body){lines=lines.concat(describe(d).map(function(s){return ' IFRAME '+s;}));}"
     "else{lines.push(' iframe['+k+'] same-origin but empty');}}"
     "catch(e){lines.push(' iframe['+k+'] cross-origin');}"
-    "}"
-    "return lines.join(' | ');"
-    "})()";
-
-// Dumps the media elements (img, object, embed, iframe) and background-image
-// styles on the document-view viewer page, so we can see how the page image
-// is embedded when the standard  selector finds nothing.
-static NSString * const LNViewDiagnoseScript =
-    @"(function(){"
-    "var lines=[];"
-    "var imgs=document.querySelectorAll('img');"
-    "lines.push('imgs='+imgs.length);"
-    "for(var i=0;i<imgs.length&&i<8;i++){"
-    "var im=imgs[i];"
-    "lines.push(' img['+i+'] src='+(im.src||'').substring(0,100));"
-    "lines.push('  w='+im.width+' h='+im.height+' data-src='+(im.getAttribute('data-src')||''));"
-    "lines.push('  style='+(im.getAttribute('style')||'').substring(0,60));"
-    "}"
-    "var obs=document.querySelectorAll('object,embed');"
-    "lines.push('object/embed='+obs.length);"
-    "for(var i=0;i<obs.length&&i<5;i++){"
-    "lines.push(' obj['+i+'] tag='+obs[i].tagName+' data='+(obs[i].data||'')+' src='+(obs[i].src||'')+' type='+(obs[i].type||''));"
-    "}"
-    "var ifrs=document.querySelectorAll('iframe');"
-    "lines.push('iframes='+ifrs.length);"
-    "for(var k=0;k<ifrs.length&&k<5;k++){"
-    "lines.push(' iframe['+k+'] src='+(ifrs[k].getAttribute('src')||'').substring(0,100));"
-    "}"
-    "var divs=document.querySelectorAll('div[style*=\"background\"]');"
-    "lines.push('divs-bg='+divs.length);"
-    "for(var j=0;j<divs.length&&j<5;j++){"
-    "lines.push(' div['+j+'] style='+(divs[j].getAttribute('style')||'').substring(0,80));"
     "}"
     "return lines.join(' | ');"
     "})()";
@@ -405,6 +332,152 @@ static NSString * const LNEmbeddedAuthFrameScript =
     "return '';"
     "})()";
 
+// Reads the viewer page's own PDF settings. The site builds its "Download PDF"
+// request from Drupal.settings.nbcore_pdf (template_params + options), which
+// contains the exact metadata/title/openurl the server expects for this page,
+// and from Drupal.settings.nbbase (docref, baseUrl, authToken). The TOC
+// settings hold the page list URL and the viewer URL template used to page
+// through the issue. Returning these values lets the app make the same requests
+// the browser makes (see newsbank.har, entries 479 / 508 / 509).
+static NSString * const LNSettingsScript =
+    @"(function(){"
+    "try{"
+    "if(typeof Drupal==='undefined'||!Drupal.settings)return '{\"error\":\"no Drupal.settings\"}';"
+    "var st=Drupal.settings;"
+    "var nb=st.nbbase||{};"
+    "var pdfs=st.nbcore_pdf||{};"
+    "var inst=null;"
+    "for(var k in pdfs){var v=pdfs[k];if(v&&v.template_params){inst=v;break;}}"
+    "if(!inst)return '{\"error\":\"no nbcore_pdf settings\"}';"
+    "var toc=null;"
+    "for(var t in st){if(t.indexOf('tocSelect__')===0){toc=st[t];break;}}"
+    "return JSON.stringify({"
+    "ok:true,"
+    "baseUrl:nb.baseUrl||'',"
+    "docref:nb.docref||'',"
+    "authToken:nb.authToken||'',"
+    "sitelinksREM:nb.sitelinksREM||'nbnews_drupal',"
+    "theme:inst.theme||'',"
+    "templateParams:inst.template_params||{},"
+    "options:inst.options||{},"
+    "tocUrl:(toc&&toc.tocUrl)?toc.tocUrl:'',"
+    "destinationTemplate:(toc&&toc.destinationUrlTemplate)?toc.destinationUrlTemplate:'',"
+    "metadataJSON:(inst.template_params&&inst.template_params.metadata)?JSON.stringify(inst.template_params.metadata):''"
+    "});"
+    "}catch(e){return JSON.stringify({error:String(e)});}"
+    "})()";
+
+#pragma mark - NewsBank XML helpers
+
+// Parses <page docref="..." label="..."/> entries out of the image-viewer
+// table of contents (nb-sitelinks/imageviewer/toc/index.xml), which lists every
+// page of the issue.
+@interface LNTOCParser : NSObject <NSXMLParserDelegate>
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *pages;
+@property (nonatomic, copy) NSString *issueID;
+@end
+
+@implementation LNTOCParser
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _pages = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (void)parser:(NSXMLParser *)parser
+    didStartElement:(NSString *)elementName
+      namespaceURI:(NSString *)namespaceURI
+     qualifiedName:(NSString *)qName
+        attributes:(NSDictionary *)attributeDict {
+    if ([elementName isEqualToString:@"toc"]) {
+        NSString *issueID = attributeDict[@"source_id"];
+        if (issueID.length > 0) {
+            self.issueID = issueID;
+        }
+        return;
+    }
+    if (![elementName isEqualToString:@"page"]) {
+        return;
+    }
+    NSString *docref = attributeDict[@"docref"];
+    if (docref.length == 0) {
+        return;
+    }
+    [self.pages addObject:@{ @"docref": docref,
+                             @"label": attributeDict[@"label"] ?: @"" }];
+}
+
+@end
+
+// Parses the printer-friendly image info from
+// SiteLinks/imageviewer/print/index.xml: the <img> element carries the
+// base64-encoded x-large image URL (encoded_src, i.e. the form's
+// image_url_encoded) plus the pixel size used to compute the PDF page box.
+@interface LNImageInfoParser : NSObject <NSXMLParserDelegate>
+@property (nonatomic, copy) NSString *encodedSrc;
+@property (nonatomic) NSInteger imageWidth;
+@property (nonatomic) NSInteger imageHeight;
+@end
+
+@implementation LNImageInfoParser
+
+- (void)parser:(NSXMLParser *)parser
+    didStartElement:(NSString *)elementName
+      namespaceURI:(NSString *)namespaceURI
+     qualifiedName:(NSString *)qName
+        attributes:(NSDictionary *)attributeDict {
+    if (![elementName isEqualToString:@"img"]) {
+        return;
+    }
+    if (self.encodedSrc.length > 0) {
+        return;
+    }
+    NSString *encoded = attributeDict[@"encoded_src"];
+    if (encoded.length == 0) {
+        return;
+    }
+    self.encodedSrc = encoded;
+    self.imageWidth = [attributeDict[@"width"] integerValue];
+    self.imageHeight = [attributeDict[@"height"] integerValue];
+}
+
+@end
+
+// Percent-encodes a docref the way the site does (RFC 3986 unreserved set,
+// everything else escaped: image%2Fv2%3A...%400).
+static NSString *LNPercentEncode(NSString *value) {
+    static NSCharacterSet *allowed = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        allowed = [NSCharacterSet characterSetWithCharactersInString:
+                   @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"];
+    });
+    return [value stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: value;
+}
+
+// The OpenURL fields carry the docref percent-encoded once, then their % signs
+// escaped a second time (document_id%3Aimage%252Fv2%253A...).
+static NSString *LNDoubleEncodedDocref(NSString *docref) {
+    return [LNPercentEncode(docref) stringByReplacingOccurrencesOfString:@"%"
+                                                              withString:@"%25"];
+}
+
+static NSString *LNBase64Encode(NSString *string) {
+    return [[string dataUsingEncoding:NSUTF8StringEncoding]
+               base64EncodedStringWithOptions:0] ?: @"";
+}
+
+static NSString *LNBase64Decode(NSString *base64) {
+    NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+    if (data == nil) {
+        return nil;
+    }
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
 #pragma mark - Auth web view controller
 
 @interface AuthWebViewController () <UIWebViewDelegate>
@@ -426,6 +499,13 @@ static NSString * const LNEmbeddedAuthFrameScript =
 @property (nonatomic, assign) BOOL navigationPending;
 @property (nonatomic, assign) BOOL rescueNavigated;
 @property (nonatomic, assign) BOOL started;
+@property (nonatomic, strong) NSDictionary *pdfSettings;
+@property (nonatomic, strong) NSArray<NSDictionary *> *tocPages;
+@property (nonatomic, assign) NSInteger pdfPageIndex;
+@property (nonatomic, assign) NSInteger pdfPageAttempts;
+@property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UIActivityIndicatorView *spinner;
+@property (nonatomic, assign) BOOL downloadFinished;
 
 @end
 
@@ -458,6 +538,30 @@ static NSString * const LNEmbeddedAuthFrameScript =
     // Run the auth + download flow in the background; the user never sees it.
     _webView.hidden = YES;
     [self.view addSubview:_webView];
+
+    // The web view is hidden, so show what the background flow is doing.
+    _spinner = [[UIActivityIndicatorView alloc]
+                   initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    _spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [_spinner startAnimating];
+    [self.view addSubview:_spinner];
+
+    _statusLabel = [[UILabel alloc] init];
+    _statusLabel.font = [UIFont systemFontOfSize:15];
+    _statusLabel.textColor = [UIColor darkGrayColor];
+    _statusLabel.textAlignment = NSTextAlignmentCenter;
+    _statusLabel.numberOfLines = 0;
+    _statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_statusLabel];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_spinner.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [_spinner.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor constant:-24],
+
+        [_statusLabel.topAnchor constraintEqualToAnchor:_spinner.bottomAnchor constant:16],
+        [_statusLabel.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:24],
+        [_statusLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-24],
+    ]];
 }
 
 - (void)dealloc {
@@ -513,6 +617,9 @@ static NSString * const LNEmbeddedAuthFrameScript =
 - (void)setStep:(LNAuthStep)step {
     _step = step;
     self.title = [self titleForStep:step];
+    if (_statusLabel != nil) {
+        _statusLabel.text = [self titleForStep:step];
+    }
 }
 
 - (void)resetTimeout {
@@ -547,9 +654,9 @@ static NSString * const LNEmbeddedAuthFrameScript =
     _navigationPending = NO;
     _lastHandledURLString = [currentURL copy];
 
-    // While downloading pages, route page loads to the download handler.
+    // While downloading, the web view is no longer navigated — all page
+    // fetches run through NSURLSession — so page loads are ignored here.
     if (_downloadActive) {
-        [self downloadTick];
         return;
     }
 
@@ -775,34 +882,13 @@ static NSString * const LNEmbeddedAuthFrameScript =
     NSString *target = nil;
 
     if (_step == LNAuthStepAwaitImageEdition) {
-        // Prefer the collection page: read the image-edition URL straight from
-        // it and navigate there directly (no reliance on clicking).
-        result = [self runScript:LNImageEditionURLScript] ?: @"";
-        if ([result hasPrefix:@"URL:"]) {
-            target = [result substringFromIndex:4];
-            NSLog(@"[auth] image edition URL: %@", target);
-            [self setStep:LNAuthStepAwaitIssueClick];
-        } else {
-            // Not on the collection page yet: on the NewsBank landing page the
-            // way in is the "Seattle Times Collection" link.
-            NSString *click = [self runScript:LNClickLinkScript(@"seattle times")] ?: @"";
-            if ([click hasPrefix:@"CLICKED"]) {
-                NSLog(@"[auth] clicked Seattle Times Collection: %@", click);
-                _navigationPending = YES;
-                _attempts = 0;
-                return;  // wait for the collection page
-            }
-            // Blank or unrecognised page: after a few tries, fall back to the
-            // known image-edition URL.
-            _attempts++;
-            if (_attempts >= 3) {
-                NSLog(@"[auth] falling back to direct image-edition URL");
-                target = LNImageEditionURLString;
-                [self setStep:LNAuthStepAwaitIssueClick];
-            } else {
-                return;
-            }
-        }
+        // Navigate directly to the image-edition (browse-pub) URL. This avoids
+        // loading the intermediate collection page and clicking the
+        // "Seattle Times Collection" link — we already know the URL from the
+        // HAR / verified page scrape.
+        target = LNImageEditionURLString;
+        NSLog(@"[auth] navigating directly to image edition: %@", target);
+        [self setStep:LNAuthStepAwaitIssueClick];
     } else {  // LNAuthStepAwaitIssueClick
         // Pick the issue matching the target date, or the most recent if no
         // date was specified.
@@ -888,280 +974,661 @@ static NSString * const LNEmbeddedAuthFrameScript =
 #pragma mark - Download pipeline
 
 // Called when the image viewer (document-view with format=image) is reached.
-// Starts downloading page images one at a time.
+// The page itself tells us everything NewsBank's own "Download PDF" button
+// sends: template_params (metadata, title, openurl, copyright…), the page
+// options, and the TOC endpoint that lists every page of the issue.
 - (void)startDownload {
     _downloadActive = YES;
     [_pollTimer invalidate];
     [_timeoutTimer invalidate];
+    [_downloadRetryTimer invalidate];
 
-    // Extract issue info from the viewer URL.
-    NSString *urlString = _webView.request.mainDocumentURL.absoluteString ?: @"";
-    _issueTitle = @"Seattle Times, The (WA)";
-    _issueDateText = _targetDate ?: @"";
+    _currentDocumentViewURL = _webView.request.mainDocumentURL.absoluteString ?: @"";
+
+    NSString *settingsJSON = [self runScript:LNSettingsScript] ?: @"";
+    NSData *settingsData = [settingsJSON dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *settings = nil;
+    if (settingsData.length > 0) {
+        id parsed = [NSJSONSerialization JSONObjectWithData:settingsData options:0 error:NULL];
+        if ([parsed isKindOfClass:[NSDictionary class]]) {
+            settings = parsed;
+        }
+    }
+    NSLog(@"[auth] page PDF settings: %@", settingsJSON.length > 1200
+          ? [settingsJSON substringToIndex:1200] : settingsJSON);
+
+    if (settings == nil || ![settings[@"ok"] boolValue]) {
+        [self abortDownloadWithReason:@"Could not read the NewsBank PDF settings from the page."];
+        return;
+    }
+
+    _pdfSettings = settings;
+    _pdfPageIndex = 0;
+    _pdfPageAttempts = 0;
+    _nextDownloadPage = 1;
+    _downloadFinished = NO;
+    // A retry starts the issue over; don't mix in pages from a failed attempt.
+    _pageImageURLs = [NSMutableArray array];
+
+    NSDictionary *params = settings[@"templateParams"];
+    if (![params isKindOfClass:[NSDictionary class]]) params = @{};
+    NSDictionary *meta = params[@"metadata"];
+    if (![meta isKindOfClass:[NSDictionary class]]) meta = @{};
+
+    _issueTitle = LNString(meta[@"publication"]);
+    if (_issueTitle.length == 0) _issueTitle = @"Seattle Times, The (WA)";
+
     NSDate *issueDate = nil;
-    if (_issueDateText.length > 0) {
-        issueDate = LNParseDate(_issueDateText);
+    NSString *dateDisplay = LNString(meta[@"date_display"]);
+    if (dateDisplay.length > 0) {
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        df.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+        df.dateFormat = @"MMMM d, yyyy";
+        issueDate = [df dateFromString:dateDisplay];
+    }
+    if (issueDate == nil && _targetDate.length > 0) {
+        issueDate = LNParseDate(_targetDate);
     }
     if (issueDate == nil) {
         issueDate = [NSDate date];
     }
 
-    // Build issue ID: STS2S-EEDT-YYYY-MM-DD
-    NSDateFormatter *df = [[NSDateFormatter alloc] init];
-    df.dateFormat = @"yyyy-MM-dd";
-    _issueIDString = [NSString stringWithFormat:@"STS2S-EEDT-%@", [df stringFromDate:issueDate]];
-    _nextDownloadPage = 1;
-    _downloadRetries = 0;
-    _firstPageDelivered = NO;
-    _isLastPage = NO;
+    NSDateFormatter *iso = [[NSDateFormatter alloc] init];
+    iso.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+    iso.dateFormat = @"yyyy-MM-dd";
+    _issueDateText = [iso stringFromDate:issueDate];
+    _issueIDString = [NSString stringWithFormat:@"STS2S-EEDT-%@", _issueDateText];
 
-    NSLog(@"[auth] download starting for issue %@", _issueIDString);
+    NSLog(@"[auth] download starting for issue %@ (base %@)", _issueIDString,
+          LNString(settings[@"baseUrl"]));
 
-    [self downloadTick];
+    _statusLabel.text = @"Loading the paper's page list…";
+    [self fetchTableOfContents];
 }
 
-// Called when a page finishes loading during the download phase. Extracts the
-// page image and next-page link, downloads the image, and either navigates to
-// the next page or finishes.
-- (void)downloadTick {
-    NSString *result = [self runScript:LNDownloadPageScript] ?: @"";
-    NSLog(@"[auth] download page extract: %@", result);
+#pragma mark - Page list
 
-    NSData *jsonData = [result dataUsingEncoding:NSUTF8StringEncoding];
-    NSDictionary *info = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:NULL];
-    if (![info isKindOfClass:[NSDictionary class]]) {
-        info = @{};
-    }
-
-    NSString *imageURL = info[@"image"] ?: @"";
-    NSString *nextPage = info[@"nextPage"] ?: @"";
-
-    // If the extracted "image" is actually the document-view page URL itself
-    // (the script's fallback matched a self-referential img), it's not a real
-    // page image. Run the page-structure diagnostic and retry.
-    if (imageURL.length > 0 && [imageURL rangeOfString:@"document-view"].location != NSNotFound) {
-        NSString *diag = [self runScript:LNViewDiagnoseScript] ?: @"";
-        NSLog(@"[auth] view diagnose: %@", diag);
-        _downloadRetries++;
-        if (_downloadRetries < 4) {
-            NSLog(@"[auth] download: image is document-view URL (retry %ld)", (long)_downloadRetries);
-            [self startDownloadRetryTimer];
-            return;
-        }
-        // Retries exhausted: give up on this page.
-        [self finishDownload];
-        return;
-    }
-
-    if (imageURL.length > 0 && nextPage.length > 0) {
-        // Found both page image and next-page link: download image, advance.
-        _downloadRetries = 0;
-        _isLastPage = NO;
-        [self downloadImageAtURLString:imageURL isFallback:NO];
-        NSURL *url = [NSURL URLWithString:nextPage];
-        if (url) {
-            _navigationPending = YES;
-            [_webView loadRequest:[NSURLRequest requestWithURL:url]];
-            return;
-        }
-        // No next page link despite having one: treat as last page.
-        _isLastPage = YES;
-        [self downloadImageAtURLString:imageURL isFallback:NO];
-        return;
-    }
-
-    if (imageURL.length > 0) {
-        // Found image but no next-page link: last page.
-        _downloadRetries = 0;
-        _isLastPage = YES;
-        [self downloadImageAtURLString:imageURL isFallback:NO];
-        return;
-    }
-
-    if (nextPage.length > 0) {
-        // Found next-page link but image not rendered yet: retry before
-        // advancing, so we don't skip a page.
-        _downloadRetries++;
-        if (_downloadRetries < 4) {
-            NSLog(@"[auth] download: next page found, waiting for image (retry %ld)", (long)_downloadRetries);
-            [self startDownloadRetryTimer];
-            return;
-        }
-        // Retries exhausted: advance without this page's image.
-        _downloadRetries = 0;
-        NSURL *url = [NSURL URLWithString:nextPage];
-        if (url) {
-            _navigationPending = YES;
-            [_webView loadRequest:[NSURLRequest requestWithURL:url]];
-            return;
-        }
-        [self finishDownload];
-        return;
-    }
-
-    // Nothing found at all: dump page structure for diagnosis, then retry.
-    _downloadRetries++;
-    if (_downloadRetries < 4) {
-        NSLog(@"[auth] download: nothing usable yet (retry %ld)", (long)_downloadRetries);
-        NSString *diag = [self runScript:LNViewDiagnoseScript] ?: @"";
-        NSLog(@"[auth] view diagnose: %@", diag);
-        [self startDownloadRetryTimer];
-        return;
-    }
-
-    // No more pages (or retries exhausted): save the issue to disk.
-    [self finishDownload];
+// The page's validated PDF dictionaries (never NSNull).
+- (NSDictionary *)pdfTemplateParams {
+    NSDictionary *params = _pdfSettings[@"templateParams"];
+    return [params isKindOfClass:[NSDictionary class]] ? params : @{};
 }
 
-// Schedules a re-check of the current page after a short delay, in case the
-// page image or next-page link is still rendering.
-- (void)startDownloadRetryTimer {
-    [_downloadRetryTimer invalidate];
-    _downloadRetryTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
-                                                           target:self
-                                                         selector:@selector(downloadRetryTick)
-                                                         userInfo:nil
-                                                          repeats:NO];
+- (NSDictionary *)pdfOptions {
+    NSDictionary *options = _pdfSettings[@"options"];
+    return [options isKindOfClass:[NSDictionary class]] ? options : @{};
 }
 
-- (void)downloadRetryTick {
-    [self downloadTick];
+- (NSString *)issueIDFromDocref:(NSString *)docref {
+    // image/v2:<pbi>@NewsBank-<issueID>@<ibd>-<page>@<seq>
+    NSRange marker = [docref rangeOfString:@"@NewsBank-"];
+    if (marker.location == NSNotFound) {
+        return @"";
+    }
+    NSString *rest = [docref substringFromIndex:marker.location + marker.length];
+    NSRange at = [rest rangeOfString:@"@"];
+    return at.location == NSNotFound ? rest : [rest substringToIndex:at.location];
 }
 
-// Downloads a single page image from the given URL string.
-// NewsBank page images come in two sizes:
-//   thumbnail: .../maximus/cache/0/thumbnail/color_jpeg_80/H1/H2/thumb_200_H2.jpg  (small, works)
-//   x-large:   .../maximus/cache/0/images/color_jpeg_80/H1/H2/x-large/H1_H2.jpg    (full-res, from HAR)
-//
-// We construct the x-large URL from the thumbnail URL pattern discovered in the
-// HAR file (newsbank.har shows the PDF download embeds an x-large image). If
-// x-large fails, fall back to the thumbnail URL (only once).
-- (void)downloadImageAtURLString:(NSString *)urlString isFallback:(BOOL)isFallback {
-    // Construct x-large URL from thumbnail URL pattern.
-    NSString *xLargeURL = nil;
-    if (!isFallback && [urlString rangeOfString:@"/thumbnail/"].location != NSNotFound) {
-        // Pattern: .../thumbnail/color_jpeg_80/HASH1/HASH2/thumb_200_HASH2.jpg
-        NSRange thumbRange = [urlString rangeOfString:@"/thumbnail/color_jpeg_80/"];
-        if (thumbRange.location != NSNotFound) {
-            NSString *after = [urlString substringFromIndex:thumbRange.location + thumbRange.length];
-            // after = "HASH1/HASH2/thumb_200_HASH2.jpg"
-            NSArray *parts = [after componentsSeparatedByString:@"/"];
-            if (parts.count >= 3) {
-                NSString *hash1 = parts[0];
-                NSString *hash2 = parts[1];
-                // Verify parts[2] matches thumb_200_HASH2.jpg
-                NSString *expectedFile = [NSString stringWithFormat:@"thumb_200_%@.jpg", hash2];
-                if ([parts[2] isEqualToString:expectedFile]) {
-                    // Build x-large URL: replace /thumbnail/ with /images/ and add /x-large/
-                    NSString *before = [urlString substringToIndex:thumbRange.location];
-                    xLargeURL = [NSString stringWithFormat:@"%@/images/color_jpeg_80/%@/%@/x-large/%@_%@.jpg",
-                                 before, hash1, hash2, hash1, hash2];
-                    NSLog(@"[auth] trying x-large URL: %@", xLargeURL);
-                }
+// The TOC lists docrefs as "v2:…" while every other request uses the
+// "image/"-prefixed form from Drupal.settings.nbbase.docref.
+- (NSString *)fullDocrefForTOCDocref:(NSString *)tocDocref {
+    if ([tocDocref hasPrefix:@"image/"]) {
+        return tocDocref;
+    }
+    NSString *live = LNString(_pdfSettings[@"docref"]);
+    NSRange v2 = [live rangeOfString:@"v2:"];
+    NSString *prefix = (v2.location != NSNotFound)
+        ? [live substringToIndex:v2.location] : @"image/";
+    return [prefix stringByAppendingString:tocDocref];
+}
+
+// The viewer's TOC endpoint lists every page of the issue (HAR entry 479).
+- (void)fetchTableOfContents {
+    NSURL *base = [NSURL URLWithString:LNString(_pdfSettings[@"baseUrl"])];
+    if (base.scheme.length == 0 || base.host.length == 0) {
+        [self abortDownloadWithReason:@"The viewer page did not report its NewsBank host."];
+        return;
+    }
+
+    NSString *tocPath = LNString(_pdfSettings[@"tocUrl"]);
+    if (tocPath.length == 0) {
+        NSString *docref = LNString(_pdfSettings[@"docref"]);
+        NSString *auth = LNString(_pdfSettings[@"authToken"]);
+        NSString *product = LNString([self pdfTemplateParams][@"p"]);
+        if (product.length == 0) product = @"NewsBank";
+        tocPath = [NSString stringWithFormat:
+            @"/apps/news/nb-sitelinks/imageviewer/toc/index.xml"
+            @"?product=%@&issueid=%@&url=%@&query=&auth=%@",
+            product, [self issueIDFromDocref:docref], LNPercentEncode(docref), auth];
+    }
+
+    NSString *absolute = tocPath;
+    if ([absolute hasPrefix:@"/"]) {
+        absolute = [NSString stringWithFormat:@"%@://%@%@", base.scheme, base.host, absolute];
+    }
+
+    NSLog(@"[auth] page list: %@", absolute);
+
+    NSMutableURLRequest *request =
+        [NSMutableURLRequest requestWithURL:[NSURL URLWithString:absolute]];
+    request.timeoutInterval = 30.0;
+    [self addAuthHeadersToRequest:request];
+    [request setValue:@"application/xml, text/xml, */*; q=0.01" forHTTPHeaderField:@"Accept"];
+    [request setValue:@"XMLHttpRequest" forHTTPHeaderField:@"X-Requested-With"];
+    [request setValue:_currentDocumentViewURL forHTTPHeaderField:@"Referer"];
+
+    NSURLSessionDataTask *task =
+        [_downloadSession dataTaskWithRequest:request
+                           completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error != nil || data.length == 0) {
+            NSInteger status = 0;
+            if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+                status = [(NSHTTPURLResponse *)response statusCode];
             }
-        }
-    }
-
-    NSString *targetURL = xLargeURL ?: urlString;
-    NSURL *url = [NSURL URLWithString:targetURL];
-    if (url == nil) {
-        NSLog(@"[auth] download: invalid image URL: %@", urlString);
-        [self finishDownload];
-        return;
-    }
-
-    NSURLRequest *request = [NSURLRequest requestWithURL:url];
-    NSInteger pageNumber = _nextDownloadPage++;
-    NSURLSessionDataTask *task = [_downloadSession dataTaskWithRequest:request
-                                                    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error != nil || data == nil) {
-            NSLog(@"[auth] download image failed for page %ld: %@", (long)pageNumber, error ?: @"no data");
-            // Fall back to the original thumbnail URL (only once).
-            if (!isFallback && xLargeURL != nil) {
-                NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
-                [self downloadImageAtURLString:urlString isFallback:YES];
-            } else {
-                [self finishDownload];
-            }
-            return;
-        }
-
-        // Log HTTP status and MIME type.
-        NSInteger statusCode = 0;
-        NSString *mime = @"";
-        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-            statusCode = [(NSHTTPURLResponse *)response statusCode];
-            mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"] ?: @"";
-        }
-        NSLog(@"[auth] page %ld: status=%ld mime=%@ data=%ld bytes",
-              (long)pageNumber, (long)statusCode, mime, (long)data.length);
-
-        // Verify the data is a valid image before saving.
-        UIImage *testImage = [UIImage imageWithData:data];
-        if (testImage == nil) {
-            NSLog(@"[auth] page %ld: downloaded data is NOT a valid image", (long)pageNumber);
-            // Fall back to the original thumbnail URL (only once).
-            if (!isFallback && xLargeURL != nil) {
-                NSLog(@"[auth] falling back to thumbnail URL: %@", urlString);
-                [self downloadImageAtURLString:urlString isFallback:YES];
-            } else {
-                [self finishDownload];
-            }
-            return;
-        }
-        NSLog(@"[auth] page %ld: valid image %dx%d", (long)pageNumber,
-              (NSInteger)testImage.size.width, (NSInteger)testImage.size.height);
-
-        // Determine file extension from MIME type or URL.
-        NSString *extension = @"jpg";
-        if ([mime hasPrefix:@"image/png"]) extension = @"png";
-        else if ([mime hasPrefix:@"image/jpeg"]) extension = @"jpg";
-        else if ([mime hasPrefix:@"image/tiff"]) extension = @"tiff";
-
-        NSString *fileName = [NSString stringWithFormat:@"%03ld.%@", (long)pageNumber, extension];
-        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-        NSString *documentsPath = paths.firstObject;
-        NSString *issueDir = [documentsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"NewsFiles/%@", _issueIDString]];
-        NSString *pagesDir = [issueDir stringByAppendingPathComponent:@"pages"];
-        NSString *filePath = [pagesDir stringByAppendingPathComponent:fileName];
-
-        // Create directories if needed.
-        NSFileManager *fm = [NSFileManager defaultManager];
-        [fm createDirectoryAtPath:pagesDir withIntermediateDirectories:YES attributes:nil error:NULL];
-
-        if ([data writeToFile:filePath atomically:YES]) {
-            NSURL *fileURL = [NSURL fileURLWithPath:filePath];
+            NSLog(@"[auth] page list failed: status=%ld error=%@", (long)status, error ?: @"no data");
             dispatch_async(dispatch_get_main_queue(), ^{
-                [_pageImageURLs addObject:fileURL];
-                NSLog(@"[auth] downloaded page %ld -> %@ (%ld bytes)", (long)pageNumber, filePath, (long)data.length);
-
-                // As soon as page 1 is saved, switch to the offline reader so
-                // the user can start reading while the rest download.
-                if (pageNumber == 1 && !_firstPageDelivered) {
-                    _firstPageDelivered = YES;
-                    NSLog(@"[auth] page 1 ready; opening offline reader");
-                    if (_onComplete) {
-                        _onComplete([self buildIssueWithPageCount:1], nil);
-                    }
-                }
-
-                // If this was the last page, save metadata and finish.
-                if (_isLastPage) {
-                    _isLastPage = NO;
-                    [self finishDownload];
-                }
+                [self abortDownloadWithReason:@"Could not load the paper's page list."];
             });
-        } else {
-            NSLog(@"[auth] failed to write page image: %@", filePath);
-            [self finishDownload];
+            return;
         }
+
+        LNTOCParser *parser = [[LNTOCParser alloc] init];
+        NSXMLParser *xml = [[NSXMLParser alloc] initWithData:data];
+        xml.delegate = parser;
+        [xml parse];
+        NSLog(@"[auth] page list: %lu pages (issue %@)", (unsigned long)parser.pages.count,
+              parser.issueID ?: @"?");
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (parser.pages.count == 0) {
+                [self abortDownloadWithReason:@"The paper's page list was empty."];
+                return;
+            }
+            self.tocPages = parser.pages;
+            [self downloadNextPage];
+        });
     }];
     [task resume];
 }
 
-// Builds an LNIssue from the currently downloaded page images (up to
-// pageCount pages). Used to show the first page immediately while the rest
-// continue downloading in the background.
+#pragma mark - Page download
+
+- (void)downloadNextPage {
+    if (!_downloadActive) {
+        return;
+    }
+    if (_pdfPageIndex >= (NSInteger)_tocPages.count) {
+        [self finishDownload];
+        return;
+    }
+
+    NSString *docref = [self fullDocrefForTOCDocref:
+                        LNString(_tocPages[(NSUInteger)_pdfPageIndex][@"docref"])];
+    NSString *label = LNString(_tocPages[(NSUInteger)_pdfPageIndex][@"label"]);
+    NSInteger pageNumber = _pdfPageIndex + 1;
+
+    _nextDownloadPage = pageNumber;
+    _statusLabel.text = [NSString stringWithFormat:@"Downloading page %ld of %lu…",
+                         (long)pageNumber, (unsigned long)_tocPages.count];
+
+    NSLog(@"[auth] page %ld/%lu docref=%@", (long)pageNumber,
+          (unsigned long)_tocPages.count, docref);
+
+    [self fetchImageInfoForDocref:docref label:label pageNumber:pageNumber];
+}
+
+// Ask the site for the x-large page image: the response's encoded_src is the
+// exact image_url_encoded the PDF endpoint expects, and width/height drive the
+// page box (SiteLinks/imageviewer/print/index.xml in the HAR, entry 508).
+- (void)fetchImageInfoForDocref:(NSString *)docref
+                          label:(NSString *)label
+                     pageNumber:(NSInteger)pageNumber {
+    NSDictionary *options = _pdfSettings[@"options"];
+    if (![options isKindOfClass:[NSDictionary class]]) options = @{};
+    NSDictionary *imageOptions = options[@"image"];
+    if (![imageOptions isKindOfClass:[NSDictionary class]]) imageOptions = @{};
+
+    NSInteger widthOffset = LNInteger(imageOptions[@"widthOffset"], 50);
+    NSInteger heightOffset = LNInteger(imageOptions[@"heightOffset"], 175);
+    NSInteger maxWidth = LNInteger(imageOptions[@"maxWidth"], 900);
+    NSString *rem = LNString(_pdfSettings[@"sitelinksREM"]);
+    if (rem.length == 0) rem = @"nbnews_drupal";
+
+    long long timestamp = (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+    NSString *urlString = [NSString stringWithFormat:
+        @"%@/SiteLinks/imageviewer/print/index.xml"
+        @"?ssl=true&url=%@&rem=%@&image=x-large&max_width=2600"
+        @"&widthOffset=%ld&heightOffset=%ld&maxWidth=%ld&_=%lld",
+        LNString(_pdfSettings[@"baseUrl"]), LNPercentEncode(docref), rem,
+        (long)widthOffset, (long)heightOffset, (long)maxWidth, timestamp];
+
+    NSMutableURLRequest *request =
+        [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
+    request.timeoutInterval = 60.0;
+    [self addAuthHeadersToRequest:request];
+    [request setValue:@"application/xml, text/xml, */*; q=0.01" forHTTPHeaderField:@"Accept"];
+    [request setValue:@"XMLHttpRequest" forHTTPHeaderField:@"X-Requested-With"];
+    [request setValue:[self documentViewURLForDocref:docref] forHTTPHeaderField:@"Referer"];
+
+    NSURLSessionDataTask *task =
+        [_downloadSession dataTaskWithRequest:request
+                           completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        LNImageInfoParser *info = [[LNImageInfoParser alloc] init];
+        if (error == nil && data.length > 0) {
+            NSXMLParser *xml = [[NSXMLParser alloc] initWithData:data];
+            xml.delegate = info;
+            [xml parse];
+        }
+
+        if (info.encodedSrc.length == 0 || info.imageWidth <= 0 || info.imageHeight <= 0) {
+            NSInteger status = 0;
+            if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+                status = [(NSHTTPURLResponse *)response statusCode];
+            }
+            NSLog(@"[auth] page %ld: image info failed (status=%ld error=%@ bytes=%lu)",
+                  (long)pageNumber, (long)status, error ?: @"none", (unsigned long)data.length);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self retryOrAbortPage:pageNumber
+                                reason:@"Could not read the page image details."];
+            });
+            return;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!self.downloadActive) {
+                return;
+            }
+            [self postPDFForPage:pageNumber
+                           label:label
+                          docref:docref
+                       imageInfo:info
+                     widthOffset:widthOffset
+                    heightOffset:heightOffset];
+        });
+    }];
+    [task resume];
+}
+
+- (NSString *)metadataJSONForPage:(NSString *)label {
+    // The page already gave us the metadata serialized exactly as the server
+    // expects (same key order as the HAR body); only the page label changes.
+    NSString *serialized = LNString(_pdfSettings[@"metadataJSON"]);
+    if (serialized.length > 0 && label.length > 0) {
+        NSString *escaped = [label stringByReplacingOccurrencesOfString:@"\""
+                                                             withString:@"\\\""];
+        NSRegularExpression *regex =
+            [NSRegularExpression regularExpressionWithPattern:@"\"page\"\\s*:\\s*\"[^\"]*\""
+                                                      options:0
+                                                        error:NULL];
+        NSRange range = NSMakeRange(0, serialized.length);
+        NSTextCheckingResult *match =
+            [regex firstMatchInString:serialized options:0 range:range];
+        NSString *replacement = [NSString stringWithFormat:@"\"page\":\"%@\"", escaped];
+        if (match != nil) {
+            return [serialized stringByReplacingCharactersInRange:match.range
+                                                      withString:replacement];
+        }
+        return serialized;
+    }
+
+    id meta = [self pdfTemplateParams][@"metadata"];
+    if ([meta isKindOfClass:[NSString class]]) {
+        return meta;
+    }
+    NSMutableDictionary *dict = [meta isKindOfClass:[NSDictionary class]]
+        ? [meta mutableCopy] : [NSMutableDictionary dictionary];
+    if (label.length > 0) {
+        dict[@"page"] = label;
+    }
+    NSData *data = [NSJSONSerialization dataWithJSONObject:dict options:0 error:NULL];
+    return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"{}";
+}
+
+- (NSString *)titleForPage:(NSInteger)pageNumber {
+    NSString *title = LNString([self pdfTemplateParams][@"title"]);
+    NSString *pageText = [NSString stringWithFormat:@"page %ld", (long)pageNumber];
+    if (title.length == 0) {
+        return [NSString stringWithFormat:@"News Article - %@ - %@",
+                _issueTitle ?: @"", pageText];
+    }
+    // NewsBank titles end with "- page N"; only that part changes per page.
+    NSRegularExpression *regex =
+        [NSRegularExpression regularExpressionWithPattern:@"page\\s+\\d+\\s*$"
+                                                  options:NSRegularExpressionCaseInsensitive
+                                                    error:NULL];
+    NSTextCheckingResult *match =
+        [regex firstMatchInString:title options:0 range:NSMakeRange(0, title.length)];
+    if (match != nil) {
+        return [title stringByReplacingCharactersInRange:match.range withString:pageText];
+    }
+    return [title stringByAppendingFormat:@" - %@", pageText];
+}
+
+- (NSString *)openURLForDocref:(NSString *)docref {
+    NSString *marker = @"rft_dat=document_id%3A";
+    NSString *live = LNString([self pdfTemplateParams][@"openurl"]);
+    NSString *value = [marker stringByAppendingFormat:@"%@/hlterms%%3A",
+                       LNDoubleEncodedDocref(docref)];
+    NSRange range = [live rangeOfString:marker];
+    if (range.location == NSNotFound) {
+        return live ?: @"";
+    }
+    return [[live substringToIndex:range.location] stringByAppendingString:value];
+}
+
+// openurl_encoded is the same OpenURL against the direct NewsBank host. The
+// page gives us the whole string base64-encoded, so only the docref changes.
+- (NSString *)openURLEncodedForDocref:(NSString *)docref fallback:(NSString *)openURL {
+    NSString *marker = @"rft_dat=document_id%3A";
+    NSString *value = [marker stringByAppendingFormat:@"%@/hlterms%%3A",
+                       LNDoubleEncodedDocref(docref)];
+    NSString *liveEncoded = LNString([self pdfTemplateParams][@"openurl_encoded"]);
+    NSString *decoded = LNBase64Decode(liveEncoded);
+    if (decoded != nil) {
+        NSRange range = [decoded rangeOfString:marker];
+        if (range.location != NSNotFound) {
+            return LNBase64Encode([[decoded substringToIndex:range.location]
+                                   stringByAppendingString:value]);
+        }
+    }
+    NSString *direct = openURL ?: @"";
+    NSURL *base = [NSURL URLWithString:LNString(_pdfSettings[@"baseUrl"])];
+    if (base.host.length > 0) {
+        direct = [direct stringByReplacingOccurrencesOfString:base.host
+                                                   withString:@"infoweb.newsbank.com"];
+    }
+    return LNBase64Encode(direct);
+}
+
+- (NSString *)documentViewURLForDocref:(NSString *)docref {
+    NSString *template = LNString(_pdfSettings[@"destinationTemplate"]);
+    if (template.length == 0) {
+        return _currentDocumentViewURL ?: @"";
+    }
+    NSString *path = [template stringByReplacingOccurrencesOfString:@"__DOCREF__"
+                                                        withString:LNPercentEncode(docref)];
+    if (![path hasPrefix:@"/"]) {
+        return path;
+    }
+    NSURL *base = [NSURL URLWithString:LNString(_pdfSettings[@"baseUrl"])];
+    return [NSString stringWithFormat:@"%@://%@%@", base.scheme, base.host, path];
+}
+
+// Posts the same multipart form the browser sends (newsbank.har entry 509).
+// Field order matches the HAR body exactly.
+- (void)postPDFForPage:(NSInteger)pageNumber
+                 label:(NSString *)label
+                docref:(NSString *)docref
+             imageInfo:(LNImageInfoParser *)imageInfo
+           widthOffset:(NSInteger)widthOffset
+          heightOffset:(NSInteger)heightOffset {
+    NSDictionary *params = _pdfSettings[@"templateParams"];
+    if (![params isKindOfClass:[NSDictionary class]]) params = @{};
+    NSDictionary *options = _pdfSettings[@"options"];
+    if (![options isKindOfClass:[NSDictionary class]]) options = @{};
+
+    // Page geometry, exactly as getImageParams() in nbcore_pdf.js computes it:
+    // millimetres at 96 dpi plus the metadata offsets, floored at 8.5x11in.
+    double imageWidthMM = imageInfo.imageWidth * 25.4 / 96.0;
+    double imageHeightMM = imageInfo.imageHeight * 25.4 / 96.0;
+    NSInteger pdfWidth = (NSInteger)ceil(MAX(215.9, imageWidthMM + widthOffset));
+    NSInteger pdfHeight = (NSInteger)ceil(MAX(279.4, imageHeightMM + heightOffset));
+    NSInteger pdfWidthImage = (NSInteger)ceil(imageWidthMM);
+    NSInteger pdfHeightImage = (NSInteger)ceil(imageHeightMM);
+
+    NSString *openURL = [self openURLForDocref:docref];
+    NSString *openURLEncoded = [self openURLEncodedForDocref:docref fallback:openURL];
+
+    NSDictionary *pageOptions = options[@"page"];
+    NSString *pageJSON = @"{\"orientation\":\"portrait\",\"size\":\"letter\"}";
+    if ([pageOptions isKindOfClass:[NSDictionary class]]) {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:pageOptions options:0 error:NULL];
+        if (data != nil) {
+            pageJSON = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        }
+    }
+
+    NSString *theme = LNString(params[@"theme"]);
+    if (theme.length == 0) theme = LNString(_pdfSettings[@"theme"]);
+    if (theme.length == 0) theme = @"gnus_pdf_print_template";
+
+    NSString *product = LNString(params[@"p"]);
+    if (product.length == 0) product = @"NewsBank";
+
+    NSString *themePath = LNString(params[@"theme_path"]);
+    if (themePath.length == 0) themePath = @"sites/all/themes/nb_gnus";
+
+    NSString *mediaType = LNString(params[@"media_type"]);
+    if (mediaType.length == 0) mediaType = @"image";
+
+    NSArray<NSArray *> *fields = @[
+        @[@"action", @"download"],
+        @[@"__debugPDF", @"false"],
+        @[@"__debugPDFHTML", @"false"],
+        @[@"p", product],
+        @[@"theme", theme],
+        @[@"metadata", [self metadataJSONForPage:label]],
+        @[@"body", LNString(params[@"body"]) ?: @""],
+        @[@"title", [self titleForPage:pageNumber]],
+        @[@"openurl", openURL],
+        @[@"openurl_encoded", openURLEncoded],
+        @[@"theme_path", themePath],
+        @[@"copyright", LNString(params[@"copyright"]) ?: @""],
+        @[@"media_type", mediaType],
+        @[@"citation", @"false"],
+        @[@"page", pageJSON],
+        @[@"width", [NSString stringWithFormat:@"%ld", (long)pdfWidth]],
+        @[@"height", [NSString stringWithFormat:@"%ld", (long)pdfHeight]],
+        @[@"widthImage", [NSString stringWithFormat:@"%ld", (long)pdfWidthImage]],
+        @[@"heightImage", [NSString stringWithFormat:@"%ld", (long)pdfHeightImage]],
+        @[@"image_url_encoded", imageInfo.encodedSrc],
+    ];
+
+    NSString *boundary = @"----LibraryNewspaperPDFBoundary";
+    NSMutableData *body = [NSMutableData data];
+    for (NSArray *field in fields) {
+        [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary]
+                          dataUsingEncoding:NSUTF8StringEncoding]];
+        [body appendData:[[NSString stringWithFormat:
+                           @"Content-Disposition: form-data; name=\"%@\"\r\n\r\n", field[0]]
+                          dataUsingEncoding:NSUTF8StringEncoding]];
+        [body appendData:[(NSString *)field[1] dataUsingEncoding:NSUTF8StringEncoding]];
+        [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    }
+    [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary]
+                      dataUsingEncoding:NSUTF8StringEncoding]];
+
+    NSString *endpoint = [NSString stringWithFormat:@"%@/nb-pdf/download",
+                          LNString(_pdfSettings[@"baseUrl"])];
+    NSURL *base = [NSURL URLWithString:LNString(_pdfSettings[@"baseUrl"])];
+
+    NSMutableURLRequest *request =
+        [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+    request.HTTPMethod = @"POST";
+    request.timeoutInterval = 120.0;
+    [self addAuthHeadersToRequest:request];
+    [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary]
+   forHTTPHeaderField:@"Content-Type"];
+    [request setValue:[NSString stringWithFormat:@"%lu", (unsigned long)body.length]
+   forHTTPHeaderField:@"Content-Length"];
+    [request setValue:@"*/*" forHTTPHeaderField:@"Accept"];
+    [request setValue:[NSString stringWithFormat:@"%@://%@", base.scheme, base.host]
+   forHTTPHeaderField:@"Origin"];
+    [request setValue:[self documentViewURLForDocref:docref] forHTTPHeaderField:@"Referer"];
+    request.HTTPBody = body;
+
+    NSLog(@"[auth] POST PDF page %ld: %ldx%ldpt image %ldx%ldpx, body %lu bytes",
+          (long)pageNumber, (long)pdfWidth, (long)pdfHeight,
+          (long)imageInfo.imageWidth, (long)imageInfo.imageHeight,
+          (unsigned long)body.length);
+
+    NSURLSessionDataTask *task =
+        [_downloadSession dataTaskWithRequest:request
+                           completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = 0;
+        NSString *mime = @"";
+        if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            status = [(NSHTTPURLResponse *)response statusCode];
+            mime = [(NSHTTPURLResponse *)response allHeaderFields][@"Content-Type"] ?: @"";
+        }
+        BOOL isPDF = (data.length >= 5 && data.bytes != NULL &&
+                      memcmp(data.bytes, "%PDF-", 5) == 0);
+        NSLog(@"[auth] page %ld PDF: status=%ld mime=%@ bytes=%lu valid=%d",
+              (long)pageNumber, (long)status, mime, (unsigned long)data.length, (int)isPDF);
+
+        if (error != nil || !isPDF) {
+            NSLog(@"[auth] page %ld: PDF download failed: %@", (long)pageNumber,
+                  error ?: @"response was not a PDF");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self retryOrAbortPage:pageNumber
+                                reason:@"The PDF download did not return a PDF."];
+            });
+            return;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self saveDownloadedPage:data pageNumber:pageNumber];
+        });
+    }];
+    [task resume];
+}
+
+- (void)retryOrAbortPage:(NSInteger)pageNumber reason:(NSString *)reason {
+    if (!_downloadActive) {
+        return;
+    }
+    _pdfPageAttempts++;
+    if (_pdfPageAttempts < 4) {
+        NSLog(@"[auth] page %ld: retry %ld (%@)", (long)pageNumber,
+              (long)_pdfPageAttempts, reason);
+        _statusLabel.text = [NSString stringWithFormat:@"Retrying page %ld…", (long)pageNumber];
+        __weak AuthWebViewController *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            AuthWebViewController *strongSelf = weakSelf;
+            if (strongSelf != nil && strongSelf.downloadActive) {
+                [strongSelf downloadNextPage];
+            }
+        });
+        return;
+    }
+    [self abortDownloadWithReason:
+        [NSString stringWithFormat:@"Page %ld failed: %@", (long)pageNumber, reason]];
+}
+
+- (void)saveDownloadedPage:(NSData *)data pageNumber:(NSInteger)pageNumber {
+    if (![self savePageData:data pageNumber:pageNumber extension:@"pdf"]) {
+        [self abortDownloadWithReason:@"Could not save the downloaded PDF."];
+        return;
+    }
+
+    NSLog(@"[auth] saved page %ld (%lu bytes)", (long)pageNumber, (unsigned long)data.length);
+
+    // Hand every page to the reader as it arrives: page 1 opens the reader, and
+    // each later page extends the issue so the reader can page forward while the
+    // rest of the paper keeps downloading in the background.
+    if (_onComplete) {
+        _onComplete([self buildIssueWithPageCount:(NSInteger)_pageImageURLs.count], nil);
+    }
+
+    _pdfPageIndex = pageNumber;
+    _pdfPageAttempts = 0;
+    [self downloadNextPage];
+}
+
+- (void)abortDownloadWithReason:(NSString *)reason {
+    NSLog(@"[auth] download aborted: %@", reason);
+    BOOL hadPages = (_pageImageURLs.count > 0);
+    _downloadActive = NO;
+    [_pollTimer invalidate];
+    [_timeoutTimer invalidate];
+    [_downloadRetryTimer invalidate];
+
+    if (hadPages) {
+        // Keep what already arrived and record the manifest.
+        [self finishDownload];
+        return;
+    }
+    if (_onComplete) {
+        NSError *error =
+            [NSError errorWithDomain:@"LibraryNewspaper"
+                               code:3
+                           userInfo:@{NSLocalizedDescriptionKey: reason ?: @"Fetch failed."}];
+        _onComplete(nil, error);
+    }
+}
+
+#pragma mark - Saving
+
+// Saves one downloaded page into Documents/NewsFiles/<issue>/pages.
+- (BOOL)savePageData:(NSData *)data
+          pageNumber:(NSInteger)pageNumber
+           extension:(NSString *)extension {
+    NSString *fileName = [NSString stringWithFormat:@"%03ld.%@", (long)pageNumber, extension];
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsPath = paths.firstObject;
+    NSString *issueDir = [documentsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"NewsFiles/%@", _issueIDString]];
+    NSString *pagesDir = [issueDir stringByAppendingPathComponent:@"pages"];
+    NSString *filePath = [pagesDir stringByAppendingPathComponent:fileName];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:pagesDir withIntermediateDirectories:YES attributes:nil error:NULL];
+
+    if (![data writeToFile:filePath atomically:YES]) {
+        NSLog(@"[auth] failed to write page: %@", filePath);
+        return NO;
+    }
+    [_pageImageURLs addObject:[NSURL fileURLWithPath:filePath]];
+    NSLog(@"[auth] page %ld -> %@ (%lu bytes)", (long)pageNumber, filePath,
+          (unsigned long)data.length);
+    return YES;
+}
+
+// Logs all cookies in shared storage for debugging download 503s.
+- (void)logCookies {
+    NSHTTPCookieStorage *storage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+    NSArray *cookies = [storage cookies];
+    NSLog(@"[auth] %ld cookies in shared storage:", cookies ? (long)cookies.count : -1);
+    if (cookies) {
+        for (NSHTTPCookie *cookie in cookies) {
+            // Names/domains only — never log session cookie values.
+            NSLog(@"[auth]   cookie: domain=%@ path=%@ name=%@",
+                  cookie.domain, cookie.path, cookie.name);
+        }
+    }
+}
+
+// Adds the OpenAthens/NewsBank session cookies and browser-like headers to a
+// request. NewsBank's download endpoint is behind AWS WAF which requires the
+// cookies that the UIWebView set during the login flow (session + WAF telemetry).
+- (void)addAuthHeadersToRequest:(NSMutableURLRequest *)request {
+    // Add cookies from shared storage (UIWebView writes session cookies here
+    // during the login flow; defaultSessionConfiguration should send them
+    // automatically, but we set them explicitly to be safe on iOS 9).
+    NSArray *cookies = [[NSHTTPCookieStorage sharedHTTPCookieStorage] cookies];
+    if (cookies.count > 0) {
+        NSDictionary *cookieHeaders = [NSHTTPCookie requestHeaderFieldsWithCookies:cookies];
+        for (NSString *key in cookieHeaders) {
+            [request setValue:cookieHeaders[key] forHTTPHeaderField:key];
+        }
+    } else if (_capturedCookies && _capturedCookies.length > 0) {
+        // Fallback: use Cookie header captured from UIWebView requests if
+        // shared storage has no cookies (possible on iOS 9 where UIWebView
+        // may not persist cookies to NSHTTPCookieStorage).
+        [request setValue:_capturedCookies forHTTPHeaderField:@"Cookie"];
+        NSLog(@"[auth] using captured Cookie header (%ld bytes) for download request",
+              (long)_capturedCookies.length);
+    }
+
+    // Browser-like headers that NewsBank's WAF expects.
+    [request setValue:@"Mozilla/5.0 (iPad; CPU OS 9_3_5 like Mac OS X) AppleWebKit/601.1 (KHTML, like Gecko) Mobile/13G36" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" forHTTPHeaderField:@"Accept"];
+    [request setValue:@"en-US,en;q=0.9" forHTTPHeaderField:@"Accept-Language"];
+}
+
+// Builds an LNIssue from the downloaded pages (up to pageCount pages). Used to
+// show the first page immediately while the rest continue downloading.
 - (LNIssue *)buildIssueWithPageCount:(NSInteger)pageCount {
     NSMutableArray *pages = [NSMutableArray array];
     NSInteger count = MIN(pageCount, (NSInteger)_pageImageURLs.count);
@@ -1191,8 +1658,14 @@ static NSString * const LNEmbeddedAuthFrameScript =
 
 // Saves the issue metadata (issue.json) and finishes the download.
 - (void)finishDownload {
+    if (_downloadFinished) {
+        return;
+    }
+    _downloadFinished = YES;
     _downloadActive = NO;
     [_downloadRetryTimer invalidate];
+    [_pollTimer invalidate];
+    [_timeoutTimer invalidate];
 
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *documentsPath = paths.firstObject;
@@ -1203,11 +1676,10 @@ static NSString * const LNEmbeddedAuthFrameScript =
     [fm createDirectoryAtPath:[issueDir stringByAppendingPathComponent:@"articles"] withIntermediateDirectories:YES attributes:nil error:NULL];
     [fm createDirectoryAtPath:[issueDir stringByAppendingPathComponent:@"ocr"] withIntermediateDirectories:YES attributes:nil error:NULL];
 
-    // Build page entries.
+    // Build page entries using actual filenames from downloaded URLs.
     NSMutableArray *pageEntries = [NSMutableArray array];
-    for (NSInteger i = 0; i < _pageImageURLs.count; i++) {
-        NSURL *url = _pageImageURLs[i];
-        [pageEntries addObject:[NSString stringWithFormat:@"pages/%03ld.%@", (long)(i + 1), url.pathExtension]];
+    for (NSURL *url in _pageImageURLs) {
+        [pageEntries addObject:[NSString stringWithFormat:@"pages/%@", url.lastPathComponent]];
     }
 
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
@@ -1247,11 +1719,11 @@ static NSString * const LNEmbeddedAuthFrameScript =
     LNIssue *issue = [self buildIssueWithPageCount:NSIntegerMax];
 
     NSLog(@"[auth] download complete: %ld pages saved", (long)_pageImageURLs.count);
+    _statusLabel.text = [NSString stringWithFormat:@"Saved %ld pages.", (long)_pageImageURLs.count];
+    [_spinner stopAnimating];
 
-    // Only call onComplete if we haven't already (page 1 delivery already did).
-    // If first page was delivered, the user is already reading; issue.json is saved
-    // and pages are on disk for the offline reader to load as needed.
-    if (_onComplete && !_firstPageDelivered) {
+    // Report the full issue so the UI can update the page count and toolbar.
+    if (_onComplete) {
         _onComplete(issue, nil);
     }
 }
@@ -1326,6 +1798,29 @@ static NSString * const LNEmbeddedAuthFrameScript =
               [NSString stringWithFormat:@"A page failed to load (%@).",
                                          error.localizedDescription]
               detail:failingURL.absoluteString];
+}
+
+// Intercepts UIWebView requests to capture the Cookie header. NewsBank's WAF
+// requires session + telemetry cookies that UIWebView sets during the login
+// flow. If NSHTTPCookieStorage.sharedHTTPCookieStorage isn't populated by
+// UIWebView on iOS 9, we extract cookies from outgoing requests here and
+// reuse them in NSURLSession download requests.
+- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType {
+    NSURL *url = request.URL;
+    if (url && [url.host containsString:@"newsbank"]) {
+        NSString *cookieHeader = [request valueForHTTPHeaderField:@"Cookie"];
+        if (cookieHeader && cookieHeader.length > 0) {
+            if (!_capturedCookies) {
+                _capturedCookies = [NSMutableString string];
+            }
+            if (![_capturedCookies isEqualToString:cookieHeader]) {
+                _capturedCookies = [cookieHeader mutableCopy];
+                NSLog(@"[auth] captured Cookie header (%ld bytes) from %@",
+                      (long)cookieHeader.length, url.host);
+            }
+        }
+    }
+    return YES; // allow the navigation to proceed normally
 }
 
 @end

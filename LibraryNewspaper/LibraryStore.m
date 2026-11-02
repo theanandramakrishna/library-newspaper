@@ -6,7 +6,7 @@ static NSSet *LNImageExtensions(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         extensions = [NSSet setWithArray:@[@"jpg", @"jpeg", @"png", @"heic", @"heif",
-                                           @"tif", @"tiff"]];
+                                           @"tif", @"tiff", @"pdf"]];
     });
     return extensions;
 }
@@ -515,6 +515,9 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
         UIImage *image = [ImageLoader downsampleURL:url maxPixelSize:maxPixelSize];
         if (image != nil) {
             [self.cache setObject:image forKey:key];
+        } else {
+            NSLog(@"[auth] ImageLoader: downsampleURL returned NIL for %@ (maxPixelSize=%.0f)",
+                  url.path, maxPixelSize);
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             completion(image);
@@ -523,6 +526,11 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
 }
 
 + (UIImage *)downsampleURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
+    // PDF rendering via Core Graphics (PDFKit not available on iOS 9).
+    if ([[url pathExtension] isEqualToString:@"pdf"]) {
+        return [ImageLoader renderPDFPageAtURL:url maxPixelSize:maxPixelSize];
+    }
+
     CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
     if (source == NULL) {
         NSLog(@"[auth] ImageLoader: CGImageSourceCreateWithURL returned NULL for %@", url.path);
@@ -546,6 +554,216 @@ static NSArray<NSURL *> *LNImageFilesInDirectory(NSURL *directory) {
 
     UIImage *image = [UIImage imageWithCGImage:thumbnail];
     CGImageRelease(thumbnail);
+    NSLog(@"[auth] ImageLoader: rendered image %@ -> %dx%d", url.lastPathComponent,
+          (NSInteger)image.size.width, (NSInteger)image.size.height);
+    return image;
+}
+
+// Returns the part of the page box that actually has ink on it. NewsBank's
+// generated PDFs use a page box much larger than the artwork: page 1's box is
+// 2092x4524, the template paints a white panel over 2035x3313 of it, and the
+// newspaper itself only occupies 1674x3314 of that panel. Drawing the whole
+// box shows a blank 26% strip along the bottom and a ~390 pt white gutter down
+// the right-hand side, so the rendered page is cropped to the ink instead.
++ (CGRect)contentRectForPDFPage:(CGPDFPageRef)page pageRect:(CGRect)pageRect {
+    // Probe tall enough that a one-point rule still spans a couple of pixels;
+    // below ~600 the anti-aliased right-hand edge of the artwork fades into the
+    // white template panel and the measured box jumps around by 150 pt.
+    const CGFloat probeMax = 800.0;
+    CGFloat pageWidth = pageRect.size.width;
+    CGFloat pageHeight = pageRect.size.height;
+    CGFloat maxDim = MAX(pageWidth, pageHeight);
+    if (maxDim <= 0) {
+        return pageRect;
+    }
+
+    CGFloat scale = probeMax / maxDim;
+    size_t width = (size_t)ceil(pageWidth * scale);
+    size_t height = (size_t)ceil(pageHeight * scale);
+    if (width == 0 || height == 0) {
+        return pageRect;
+    }
+
+    size_t bytesPerRow = width * 4;
+    unsigned char *data = calloc(height, bytesPerRow);
+    if (data == NULL) {
+        return pageRect;
+    }
+
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(data, width, height, 8, bytesPerRow,
+                                                 colorSpace,
+                                                 kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(colorSpace);
+    if (context == NULL) {
+        free(data);
+        return pageRect;
+    }
+
+    // Start from white paper so the test below measures ink on paper rather
+    // than "did the PDF paint here". NewsBank's template paints a white panel
+    // wider than the artwork, so an alpha test keeps that blank panel: page 1's
+    // artwork ends at x=1702 but the panel runs on to x=2063, leaving a 390 pt
+    // empty gutter down the right-hand side.
+    CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
+    CGContextFillRect(context, CGRectMake(0, 0, width, height));
+
+    CGContextScaleCTM(context, scale, scale);
+    CGContextTranslateCTM(context, -pageRect.origin.x, -pageRect.origin.y);
+    CGContextDrawPDFPage(context, page);
+
+    size_t minRow = height, maxRow = 0, minCol = width, maxCol = 0;
+    BOOL found = NO;
+    // Two passes: one mark per column/row is not enough (a single stray
+    // anti-aliasing pixel at the panel edge must not define the box), so count
+    // hits first and then keep only axis positions carrying real ink.
+    unsigned int *columnInk = calloc(width, sizeof(unsigned int));
+    unsigned int *rowInk = calloc(height, sizeof(unsigned int));
+    if (columnInk == NULL || rowInk == NULL) {
+        free(columnInk);
+        free(rowInk);
+        CGContextRelease(context);
+        free(data);
+        return pageRect;
+    }
+    for (size_t row = 0; row < height; row++) {
+        const unsigned char *pixels = data + row * bytesPerRow;
+        for (size_t col = 0; col < width; col++) {
+            const unsigned char *pixel = pixels + col * 4;
+            unsigned char r = pixel[0], g = pixel[1], b = pixel[2];
+            if (r < 240 || g < 240 || b < 240) {  // anything darker than paper
+                columnInk[col]++;
+                rowInk[row]++;
+            }
+        }
+    }
+
+    const unsigned int minCount = 2;
+    for (size_t col = 0; col < width; col++) {
+        if (columnInk[col] >= minCount) {
+            found = YES;
+            if (col < minCol) minCol = col;
+            if (col > maxCol) maxCol = col;
+        }
+    }
+    for (size_t row = 0; row < height; row++) {
+        if (rowInk[row] >= minCount) {
+            found = YES;
+            if (row < minRow) minRow = row;
+            if (row > maxRow) maxRow = row;
+        }
+    }
+
+    free(columnInk);
+    free(rowInk);
+    CGContextRelease(context);
+    free(data);
+
+    if (!found) {
+        return pageRect;
+    }
+
+    // Bitmap row 0 is the top of the page; PDF coordinates have y pointing up.
+    CGFloat x0 = minCol / scale;
+    CGFloat x1 = (maxCol + 1) / scale;
+    CGFloat y0 = (height - 1 - maxRow) / scale;
+    CGFloat y1 = (height - minRow) / scale;
+
+    CGRect content = CGRectMake(x0, y0, x1 - x0, y1 - y0);
+    content = CGRectIntersection(content, pageRect);
+    if (CGRectIsNull(content) || content.size.width <= 0 || content.size.height <= 0) {
+        return pageRect;
+    }
+    // Sanity guard: if the ink box collapses to a fraction of the page (an
+    // almost-blank page, or a scan whose ink the threshold missed) fall back to
+    // the whole page box rather than upscaling a sliver of it.
+    if (content.size.width < pageWidth * 0.4 || content.size.height < pageHeight * 0.4) {
+        return pageRect;
+    }
+    return content;
+}
+
+// Renders the first page of a PDF to a UIImage using Core Graphics.
+// PDFKit is not available on iOS 9, so we draw the PDF page into a bitmap
+// context manually. This gives full-resolution vector-quality rendering.
++ (UIImage *)renderPDFPageAtURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
+    NSLog(@"[auth] ImageLoader: renderPDFPageAtURL start for %@", url.path);
+
+    CGPDFDocumentRef pdf = CGPDFDocumentCreateWithURL((__bridge CFURLRef)url);
+    if (!pdf) {
+        NSLog(@"[auth] ImageLoader: CGPDFDocumentCreateWithURL returned NULL for %@", url.path);
+        return nil;
+    }
+    NSLog(@"[auth] ImageLoader: CGPDFDocumentCreateWithURL OK, page count=%ld",
+          (long)CGPDFDocumentGetNumberOfPages(pdf));
+
+    CGPDFPageRef page = CGPDFDocumentGetPage(pdf, 1);
+    if (!page) {
+        NSLog(@"[auth] ImageLoader: CGPDFDocumentGetPage(page 1) returned NULL for %@", url.path);
+        CGPDFDocumentRelease(pdf);
+        return nil;
+    }
+    NSLog(@"[auth] ImageLoader: CGPDFDocumentGetPage OK");
+
+    CGRect pageRect = CGPDFPageGetBoxRect(page, kCGPDFMediaBox);
+    CGRect contentRect = [self contentRectForPDFPage:page pageRect:pageRect];
+    CGFloat pageWidth = contentRect.size.width;
+    CGFloat pageHeight = contentRect.size.height;
+    CGFloat maxDim = MAX(pageWidth, pageHeight);
+    NSLog(@"[auth] ImageLoader: page box %.0fx%.0f, ink %.0fx%.0f at (%.0f,%.0f)",
+          pageRect.size.width, pageRect.size.height, pageWidth, pageHeight,
+          contentRect.origin.x, contentRect.origin.y);
+    if (maxDim <= 0) {
+        CGPDFDocumentRelease(pdf);
+        return nil;
+    }
+
+    // Scale to fit within maxPixelSize.
+    CGFloat scale = maxPixelSize / maxDim;
+    CGFloat renderWidth = pageWidth * scale;
+    CGFloat renderHeight = pageHeight * scale;
+    NSLog(@"[auth] ImageLoader: scale=%.3f, render %.0fx%.0f", scale, renderWidth, renderHeight);
+
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(NULL, renderWidth, renderHeight, 8, 0,
+                                                 colorSpace, kCGImageAlphaPremultipliedLast);
+    if (!context) {
+        NSLog(@"[auth] ImageLoader: CGBitmapContextCreate returned NULL for %@", url.path);
+        CGColorSpaceRelease(colorSpace);
+        CGPDFDocumentRelease(pdf);
+        return nil;
+    }
+
+    // Start from white paper: parts of the PDF that were never painted would
+    // otherwise come out black (the bitmap starts out transparent).
+    CGContextSetFillColorWithColor(context, [UIColor whiteColor].CGColor);
+    CGContextFillRect(context, CGRectMake(0, 0, renderWidth, renderHeight));
+
+    // CGBitmapContext and PDF pages both use a bottom-left origin with y up,
+    // so the page draws straight in once scaled. (Applying a flip here renders
+    // NewsBank's PDFs upside down.) The translation crops away the unpainted
+    // part of the page box.
+    CGContextScaleCTM(context, scale, scale);
+    CGContextTranslateCTM(context, -contentRect.origin.x, -contentRect.origin.y);
+    CGContextDrawPDFPage(context, page);
+
+    CGImageRef imageRef = CGBitmapContextCreateImage(context);
+    if (!imageRef) {
+        NSLog(@"[auth] ImageLoader: CGBitmapContextCreateImage returned NULL for %@", url.path);
+        CGContextRelease(context);
+        CGColorSpaceRelease(colorSpace);
+        CGPDFDocumentRelease(pdf);
+        return nil;
+    }
+    UIImage *image = [UIImage imageWithCGImage:imageRef];
+
+    CGImageRelease(imageRef);
+    CGContextRelease(context);
+    CGColorSpaceRelease(colorSpace);
+    CGPDFDocumentRelease(pdf);
+
+    NSLog(@"[auth] ImageLoader: rendered PDF %@ -> %dx%d", url.lastPathComponent,
+          (NSInteger)image.size.width, (NSInteger)image.size.height);
     return image;
 }
 

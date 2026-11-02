@@ -3,9 +3,10 @@
 #import "ArticleViewController.h"
 #import "ArticleListViewController.h"
 
+static CGFloat const LNToolbarHeight = 44.0;
+
 @interface IssueViewController () <ZoomablePageViewDelegate>
 @property (nonatomic, strong) LibraryStore *store;
-@property (nonatomic, strong) LNIssue *issue;
 @property (nonatomic) NSInteger pageIndex;
 @property (nonatomic, strong) NSArray<LNArticle *> *articles;
 @property (nonatomic) BOOL chromeVisible;
@@ -73,6 +74,9 @@
     self.pageView = [[ZoomablePageView alloc] initWithFrame:CGRectZero];
     self.pageView.delegate = self;
     self.pageView.translatesAutoresizingMaskIntoConstraints = NO;
+    // The toolbar overlays the bottom of the page, so keep the page clear of it
+    // (the whole page must stay visible when fitted).
+    self.pageView.pageInsets = UIEdgeInsetsMake(0, 0, LNToolbarHeight, 0);
     [self.view addSubview:self.pageView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -134,7 +138,7 @@
         [self.toolbar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.toolbar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.toolbar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [self.toolbar.heightAnchor constraintEqualToConstant:44],
+        [_toolbar.heightAnchor constraintEqualToConstant:LNToolbarHeight],
 
         [self.previousButton.leadingAnchor constraintEqualToAnchor:self.toolbar.leadingAnchor
                                                           constant:8],
@@ -208,6 +212,11 @@
     [[ImageLoader sharedLoader] loadImageForURL:page.imageURL maxPixelSize:3200 completion:^(UIImage *image) {}];
 }
 
+- (void)updatePages:(NSArray<LNPage *> *)pages {
+    self.issue.pages = pages;
+    [self updateToolbar];
+}
+
 - (void)updateToolbar {
     self.pageLabel.text = [NSString stringWithFormat:@"%ld / %ld",
                            (long)(self.pageIndex + 1), (long)self.issue.pageCount];
@@ -240,6 +249,8 @@
 
 - (void)applyChrome {
     CGFloat alpha = self.chromeVisible ? 1.0 : 0.0;
+    // The page is fitted to the area the toolbar leaves free.
+    self.pageView.pageInsets = UIEdgeInsetsMake(0, 0, self.chromeVisible ? LNToolbarHeight : 0, 0);
     [UIView animateWithDuration:0.2
                      animations:^{
         self.toolbar.alpha = alpha;

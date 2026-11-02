@@ -125,6 +125,15 @@ static NSInteger const LHMaxPapers = 5;
 
     _emptyLabel.hidden = YES;
 
+    // If already showing this issue, add newly downloaded pages in place so the
+    // reader keeps its current page instead of reloading from page 1.
+    if (self.issueVC != nil && [self.issueVC.issue.issueID isEqualToString:issue.issueID]) {
+        [self.issueVC updatePages:issue.pages];
+        self.currentIssue = self.issueVC.issue;
+        self.title = issue.title;
+        return;
+    }
+
     if (self.issueVC != nil) {
         [self.issueVC willMoveToParentViewController:nil];
         [self.issueVC.view removeFromSuperview];
@@ -229,17 +238,23 @@ static NSInteger const LHMaxPapers = 5;
 
     AuthWebViewController *auth =
         [[AuthWebViewController alloc] initWithUsername:username password:password targetDate:dateString];
+    // Page 1 is reported first and the rest arrive as they download, so only
+    // leave the progress screen once.
+    __block BOOL switchedToReader = NO;
     auth.onComplete = ^(LNIssue *fetchedIssue, NSError *error) {
         if (error != nil) {
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Fetch failed"
                                                                            message:error.localizedDescription
-                                                                preferredStyle:UIAlertControllerStyleAlert];
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            [self presentViewController:alert animated:YES completion:nil];
+            UIViewController *presenter = self.navigationController.topViewController ?: self;
+            [presenter presentViewController:alert animated:YES completion:nil];
             return;
         }
-        // Pop the background webview controller and show the downloaded issue.
-        [self.navigationController popViewControllerAnimated:YES];
+        if (!switchedToReader) {
+            switchedToReader = YES;
+            [self.navigationController popViewControllerAnimated:YES];
+        }
         [self showIssue:fetchedIssue];
     };
     self.authVC = auth;
